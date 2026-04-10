@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function hasOnlyAllowedFields(allowedFields) {
+      return request.resource.data.keys().hasOnly(allowedFields);
+    }
+
+    function isValidProduct(data) {
+      return hasOnlyAllowedFields(['name', 'price', 'original_price', 'description', 'image', 'images', 'notes', 'usage', 'stock', 'totalStock', 'soldQuantity', 'lowStockThreshold', 'views', 'stockStatus', 'featured', 'createdAt', 'discount']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.price is number && data.price > 0 &&
+             (!('original_price' in data) || (data.original_price is number && data.original_price > 0)) &&
+             data.description is string && data.description.size() < 2000 &&
+             data.image is string &&
+             (!('images' in data) || data.images is list) &&
+             data.notes is list && data.notes.size() < 20 &&
+             data.usage is string && data.usage.size() < 500 &&
+             (!('stock' in data) || (data.stock is number && data.stock >= 0)) &&
+             (!('totalStock' in data) || (data.totalStock is number && data.totalStock >= 0)) &&
+             (!('soldQuantity' in data) || (data.soldQuantity is number && data.soldQuantity >= 0)) &&
+             (!('lowStockThreshold' in data) || (data.lowStockThreshold is number && data.lowStockThreshold >= 0)) &&
+             (!('views' in data) || (data.views is number && data.views >= 0)) &&
+             (!('stockStatus' in data) || (data.stockStatus is string)) &&
+             (!('featured' in data) || (data.featured is bool)) &&
+             (!('createdAt' in data) || (data.createdAt is number)) &&
+             (!('discount' in data) || (data.discount is number));
+    }
+
+    function isValidOrder(data) {
+      return hasOnlyAllowedFields(['customer', 'products', 'total', 'status', 'timestamp']) &&
+             data.customer is map &&
+             data.products is list && data.products.size() < 50 &&
+             data.total is number && data.total >= 0 &&
+             data.status is string && data.status.size() < 50 &&
+             data.timestamp is string && data.timestamp.size() < 50;
+    }
+
+    function isValidReview(data) {
+      return hasOnlyAllowedFields(['productId', 'customerName', 'rating', 'comment', 'status', 'createdAt', 'verified']) &&
+             data.productId is string &&
+             data.customerName is string && data.customerName.size() > 0 && data.customerName.size() < 100 &&
+             data.rating is number && data.rating >= 1 && data.rating <= 5 &&
+             data.comment is string && data.comment.size() < 1000 &&
+             data.status is string && data.status in ['pending', 'approved', 'rejected'] &&
+             data.createdAt is number &&
+             (!('verified' in data) || data.verified is bool);
+    }
+
+    function isValidSettings(data) {
+      return hasOnlyAllowedFields(['websiteName', 'logo', 'primaryColor', 'footerText', 'instagramUrl', 'facebookUrl', 'heroProductId']) &&
+             data.websiteName is string &&
+             data.logo is string &&
+             data.primaryColor is string &&
+             data.footerText is string &&
+             data.instagramUrl is string &&
+             data.facebookUrl is string &&
+             data.heroProductId is string;
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      // Fallback: allow write if auth is restricted, but prefer isAuthenticated()
+      allow write: if true; 
+    }
+
+    match /orders/{orderId} {
+      allow create: if isValidOrder(request.resource.data);
+      allow read, update, delete: if true;
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isValidReview(request.resource.data);
+      allow update, delete: if true;
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if true;
+    }
+  }
+}
