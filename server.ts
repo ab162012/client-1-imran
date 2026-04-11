@@ -2,6 +2,9 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,15 +17,22 @@ async function startServer() {
 
   // Admin Key Validation API
   app.post("/api/admin/login", (req, res) => {
-    const { key } = req.body;
-    const ADMIN_KEY = process.env.ADMIN_KEY || "Usman101";
+    try {
+      const { key } = req.body;
+      const ADMIN_KEY = process.env.ADMIN_KEY || "Usman101";
 
-    if (key === ADMIN_KEY) {
-      // In a real app, we'd use a JWT or session. 
-      // For this demo, we'll return a simple success.
-      res.json({ success: true, token: "demo-admin-token" });
-    } else {
-      res.status(401).json({ success: false, message: "Invalid Admin Key" });
+      console.log(`[ADMIN LOGIN] Attempt with key: ${key ? "****" : "empty"}`);
+
+      if (key === ADMIN_KEY) {
+        console.log("[ADMIN LOGIN] Success");
+        res.json({ success: true, token: "demo-admin-token" });
+      } else {
+        console.log("[ADMIN LOGIN] Failed: Invalid Key");
+        res.status(401).json({ success: false, message: "Invalid Admin Key" });
+      }
+    } catch (error) {
+      console.error("[ADMIN LOGIN] Error:", error);
+      res.status(500).json({ success: false, message: "Internal Server Error" });
     }
   });
 

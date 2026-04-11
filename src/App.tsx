@@ -17,7 +17,7 @@ import { Success } from './pages/Success';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminLogin } from './pages/AdminLogin';
 import { auth } from './firebase';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { MessageCircle, Phone } from 'lucide-react';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -25,16 +25,30 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     const token = localStorage.getItem('adminToken');
-    if (token) {
-      // If we have a token, ensure we are also signed into Firebase anonymously
-      // to satisfy security rules
-      const unsubscribe = onAuthStateChanged(auth, (user) => {
-        setIsAuthenticated(true);
-      });
-      return () => unsubscribe();
-    } else {
+    if (!token) {
       setIsAuthenticated(false);
+      return;
     }
+
+    // If we have a token, ensure we are also signed into Firebase
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setIsAuthenticated(true);
+      } else {
+        // Try to sign in anonymously if we have a token but no Firebase user
+        try {
+          await signInAnonymously(auth);
+          // onAuthStateChanged will fire again with the user
+        } catch (error) {
+          console.error("Failed to sign in anonymously:", error);
+          // Even if Firebase auth fails, we might allow access if the token is valid
+          // but Firestore rules might block them. For now, let's be strict.
+          setIsAuthenticated(false);
+        }
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   if (isAuthenticated === null) return <div className="min-h-screen flex items-center justify-center bg-black"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div></div>;

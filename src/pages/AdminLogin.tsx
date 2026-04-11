@@ -28,7 +28,12 @@ export const AdminLogin = () => {
         body: JSON.stringify({ key }),
       });
       
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        throw new Error('Server returned an invalid response');
+      }
       
       if (data.success) {
         // Sign in anonymously to Firebase to satisfy security rules
@@ -43,7 +48,10 @@ export const AdminLogin = () => {
         setError(data.message || 'Invalid Admin Key');
       }
     } catch (err: any) {
-      setError('Failed to connect to server');
+      console.error('Login error:', err);
+      setError(err.message === 'Failed to fetch' 
+        ? 'Could not connect to server. Please ensure the backend is running.' 
+        : `Error: ${err.message || 'Unknown error occurred'}`);
     } finally {
       setLoading(false);
     }
