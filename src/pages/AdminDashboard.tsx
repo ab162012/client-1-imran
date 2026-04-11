@@ -996,14 +996,14 @@ export const AdminDashboard = () => {
                             <div className="font-bold text-black">{order.customer?.name}</div>
                             <div className="text-xs text-blue-dark/60 font-medium">{order.customer?.email}</div>
                             <div className="text-xs text-blue-dark/60 font-medium">{order.customer?.phone}</div>
-                            <div className="text-xs text-blue-dark/60 font-medium">{order.customer?.address}, {order.customer?.city}</div>
+                            <div className="text-xs text-blue-dark/60 font-medium bg-blue-light p-1 rounded mt-1">{order.customer?.address}, {order.customer?.city}</div>
                           </td>
                           <td className="p-4">
                             <div className="text-xs text-blue-dark/60 font-medium space-y-1">
                               {order.products?.map((p: any, idx: number) => (
-                                <div key={idx} className="flex justify-between gap-4">
-                                  <span className="truncate max-w-[120px]">{p.name}</span>
-                                  <span className="font-bold text-black">x{p.quantity}</span>
+                                <div key={idx} className="flex justify-between gap-4 border-b border-blue/20 pb-1">
+                                  <span className="truncate max-w-[120px] font-bold text-black">{p.name}</span>
+                                  <span className="font-black text-blue-dark">x{p.quantity}</span>
                                 </div>
                               ))}
                             </div>

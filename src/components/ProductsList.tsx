@@ -14,14 +14,26 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
 
-  const categories = ['All', 'Men', 'Unisex', 'Women'];
+  const categories = ['All', 'Men', 'Unisex'];
 
   useEffect(() => {
     const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
-      let productsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Product[];
+      let productsData = snapshot.docs.map(doc => {
+        const data = doc.data() as Product;
+        const name = data.name?.toLowerCase() || '';
+        
+        // Custom categorization logic
+        let category = 'Men';
+        if (name.includes('baqarat') || name.includes('aruj')) {
+          category = 'Unisex';
+        }
+        
+        return {
+          id: doc.id,
+          ...data,
+          category // Override category
+        };
+      }) as Product[];
       
       // No filters applied, show all products
       

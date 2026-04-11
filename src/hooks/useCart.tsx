@@ -121,23 +121,32 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
   // Buy 5 Get 1 Free: For every 6 items, 1 is free.
   // We need to find the cheapest item to make free.
-  const totalPrice = cart.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0);
+  const totalItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const rawTotalPrice = cart.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0);
   
   const calculateFreeItems = () => {
-    const freeItems = Math.floor(totalItems / 6);
-    if (freeItems === 0) return 0;
+    const freeItemsCount = Math.floor(totalItemsCount / 6);
+    if (freeItemsCount === 0) return 0;
 
-    // Find the cheapest item in the cart
-    const cheapestItem = cart.reduce((prev, curr) => 
-      (Number(curr.price) < Number(prev.price)) ? curr : prev
-    );
-    return freeItems * Number(cheapestItem.price);
+    // Create a flat list of all item prices in the cart to find the cheapest ones
+    const allPrices: number[] = [];
+    cart.forEach(item => {
+      for (let i = 0; i < item.quantity; i++) {
+        allPrices.push(Number(item.price));
+      }
+    });
+    
+    // Sort prices ascending and take the first 'freeItemsCount' prices
+    allPrices.sort((a, b) => a - b);
+    const discount = allPrices.slice(0, freeItemsCount).reduce((sum, price) => sum + price, 0);
+    
+    return discount;
   };
 
-  const finalPrice = totalPrice - calculateFreeItems();
+  const finalPrice = rawTotalPrice - calculateFreeItems();
 
   return (
-    <CartContext.Provider value={{ cart, addToCart, removeFromCart, updateQuantity, clearCart, totalItems, totalPrice: finalPrice }}>
+    <CartContext.Provider value={{ cart, addToCart, removeFromCart, updateQuantity, clearCart, totalItems: totalItemsCount, totalPrice: finalPrice }}>
       {children}
     </CartContext.Provider>
   );

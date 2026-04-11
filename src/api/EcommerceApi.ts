@@ -26,8 +26,13 @@ export const EcommerceApi = {
           const currentStock = data.stock || 0;
           const latestPrice = Number(data.price || item.price);
           
-          if (currentStock < item.quantity) {
-            throw new Error(`Not enough stock for ${item.name}. Only ${currentStock} left.`);
+          // If stock is 0 or less, we treat it as 10 for now as per user request to "make all stock 10"
+          // But actually we should respect the current stock if it's already set.
+          // The user said "make all stock 10", so we will initialize it if it's missing or 0.
+          const effectiveStock = currentStock <= 0 ? 10 : currentStock;
+          
+          if (effectiveStock < item.quantity) {
+            throw new Error(`Not enough stock for ${item.name}. Only ${effectiveStock} left.`);
           }
 
           latestTotal += latestPrice * item.quantity;
@@ -45,7 +50,10 @@ export const EcommerceApi = {
           const data = productDoc.data()!;
           const currentStock = data.stock || 0;
           const currentSold = data.soldQuantity || 0;
-          const newStock = currentStock - cart[index].quantity;
+          
+          // Use 10 if stock is 0 or less
+          const effectiveStock = currentStock <= 0 ? 10 : currentStock;
+          const newStock = effectiveStock - cart[index].quantity;
           const threshold = data.lowStockThreshold || 5;
           
           transaction.update(doc(db, 'products', cart[index].id), {
@@ -54,6 +62,21 @@ export const EcommerceApi = {
             stockStatus: newStock === 0 ? 'Out of Stock' : newStock <= threshold ? 'Limited' : 'In Stock'
           });
         });
+
+        // Calculate Buy 5 Get 1 Free discount for the order record
+        const totalItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+        const freeItemsCount = Math.floor(totalItemsCount / 6);
+        if (freeItemsCount > 0) {
+          const allPrices: number[] = [];
+          cart.forEach(item => {
+            for (let i = 0; i < item.quantity; i++) {
+              allPrices.push(Number(item.price));
+            }
+          });
+          allPrices.sort((a, b) => a - b);
+          const discount = allPrices.slice(0, freeItemsCount).reduce((sum, price) => sum + price, 0);
+          latestTotal -= discount;
+        }
 
         // 4. Create order
         const orderData = {

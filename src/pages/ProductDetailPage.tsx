@@ -344,28 +344,6 @@ export const ProductDetailPage = () => {
                   <p className="text-[10px] text-blue-dark/60 uppercase tracking-widest mt-0.5">Verified social proof</p>
                 </div>
               </div>
-                     {/* TRUST BADGES */}
-            <div className="pt-8 grid grid-cols-1 sm:grid-cols-2 gap-4 border-t-2 border-blue">
-              <div className="flex items-center text-black bg-blue-light p-5 rounded-[2rem] border-2 border-blue group hover:bg-blue hover:text-white transition-colors">
-                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center mr-4 flex-shrink-0 group-hover:scale-110 transition-transform">
-                  <Clock className="text-black" size={24} />
-                </div>
-                <div>
-                  <p className="font-black text-sm">Delivery Timeline</p>
-                  <p className="text-[10px] text-blue-dark/60 uppercase">3-6 Days</p>
-                </div>
-              </div>
-              <div className="flex items-center text-black bg-blue-light p-5 rounded-[2rem] border-2 border-blue group hover:bg-blue hover:text-white transition-colors">
-                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center mr-4 flex-shrink-0 group-hover:scale-110 transition-transform">
-                  <CheckCircle2 className="text-black" size={24} />
-                </div>
-                <div>
-                  <p className="font-black text-sm">Cash on Delivery</p>
-                  <p className="text-[10px] text-blue-dark/60 uppercase">Secure Payment</p>
-                </div>
-              </div>
-            </div>
-            
             <DeliveryTimeline />
           </div>
         </div>     </div>

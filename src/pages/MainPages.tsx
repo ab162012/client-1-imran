@@ -56,7 +56,7 @@ export const Home = () => {
       </div>
 
       {/* 1. HERO SECTION */}
-      <section className="relative py-16 md:py-32 flex items-center justify-center overflow-hidden bg-white border-b-2 border-blue">
+      <section className="relative py-16 md:py-32 flex items-center justify-center overflow-hidden bg-white">
         {/* Background Pattern Effect */}
         <div className="absolute inset-0 opacity-[0.03] pointer-events-none">
           <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(#1E3A8A 1px, transparent 1px)', backgroundSize: '32px 32px' }}></div>
@@ -84,10 +84,17 @@ export const Home = () => {
         </div>
       </section>
 
-      <div className="lg:hidden">
-        <ProductsList featuredOnly={false} />
-        <DeliveryTimeline />
-      </div>
+      <section className="py-16 md:py-24 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-5xl font-bold text-black mb-4 tracking-tighter">Featured Products</h2>
+          </div>
+          <ProductsList featuredOnly={false} />
+          <div className="mt-12">
+            <DeliveryTimeline />
+          </div>
+        </div>
+      </section>
 
       {/* 3. VALUE STRIP (TRUST) */}
       <section className="py-12 md:py-20 bg-blue-light border-b-2 border-blue">

@@ -76,12 +76,10 @@ export default function App() {
               href="https://wa.me/923058678521"
               target="_blank"
               rel="noopener noreferrer"
-              className="fixed bottom-6 right-6 z-50 bg-green-500 text-white p-4 rounded-full shadow-2xl hover:bg-green-600 transition-all hover:scale-110 flex items-center justify-center"
+              className="fixed bottom-6 right-6 z-50 bg-[#25D366] text-white p-4 rounded-full shadow-[0_10px_30px_rgba(37,211,102,0.4)] hover:bg-[#128C7E] transition-all hover:scale-110 flex items-center justify-center group"
+              aria-label="Chat on WhatsApp"
             >
-              <div className="relative flex items-center justify-center">
-                <MessageCircle size={36} fill="currentColor" className="text-white" />
-                <Phone size={18} fill="black" className="absolute text-green-500" />
-              </div>
+              <MessageCircle size={32} className="text-white fill-current" />
             </a>
           </div>
         </Router>

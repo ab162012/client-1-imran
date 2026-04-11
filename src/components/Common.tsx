@@ -8,7 +8,8 @@ export const ProductCard: React.FC<{ product: Product, rating?: number, reviewCo
   const savings = product.original_price ? product.original_price - product.price : 0;
 
   return (
-    <div
+    <Link
+      to={`/product/${product.id}`}
       className="group bg-white rounded-3xl overflow-hidden border-2 border-blue transition-all hover:shadow-xl hover:shadow-blue/30 flex flex-col relative"
     >
       {product.badge && (
@@ -26,7 +27,7 @@ export const ProductCard: React.FC<{ product: Product, rating?: number, reviewCo
           Limited Stock
         </div>
       )}
-      <Link to={`/product/${product.id}`} className="block relative aspect-[4/5] overflow-hidden bg-blue-light flex items-center justify-center">
+      <div className="block relative aspect-[4/5] overflow-hidden bg-blue-light flex items-center justify-center">
         {product.image ? (
           <img
             src={product.image}
@@ -40,7 +41,7 @@ export const ProductCard: React.FC<{ product: Product, rating?: number, reviewCo
             <span className="text-xs font-bold uppercase tracking-widest">Image not available</span>
           </div>
         )}
-      </Link>
+      </div>
       <div className="p-3 md:p-6 flex flex-col flex-grow text-center items-center">
         {product.category && (
           <div className="text-[8px] md:text-[10px] font-bold uppercase tracking-widest text-blue-dark/60 mb-1 md:mb-2">
@@ -76,9 +77,8 @@ export const ProductCard: React.FC<{ product: Product, rating?: number, reviewCo
           </div>
         )}
         <div className="mt-auto w-full">
-          <Link
-            to={`/product/${product.id}`}
-            className={`group/btn block w-full py-2 md:py-3.5 font-bold rounded-full transition-all border-2 relative overflow-hidden text-xs md:text-base ${product.stockStatus === 'Out of Stock' ? 'bg-gray-200 text-gray-500 border-transparent pointer-events-none' : 'bg-black text-white border-transparent hover:bg-blue hover:text-white hover:border-black active:scale-95'}`}
+          <div
+            className={`group/btn block w-full py-2 md:py-3.5 font-bold rounded-full transition-all border-2 relative overflow-hidden text-xs md:text-base ${product.stockStatus === 'Out of Stock' ? 'bg-gray-200 text-gray-500 border-transparent' : 'bg-black text-white border-transparent hover:bg-blue hover:text-white hover:border-black active:scale-95'}`}
           >
             <span className="relative z-10 flex items-center justify-center gap-2">
               {product.stockStatus === 'Out of Stock' ? 'Sold Out' : (
@@ -92,10 +92,10 @@ export const ProductCard: React.FC<{ product: Product, rating?: number, reviewCo
                 </>
               )}
             </span>
-          </Link>
+          </div>
         </div>
       </div>
-    </div>
+    </Link>
   );
 };
 
