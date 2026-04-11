@@ -32,7 +32,7 @@ export const Navbar = () => {
             <div className="flex-shrink-0 flex items-center z-10">
               <button
                 onClick={() => setIsMenuOpen(true)}
-                className="p-2 text-black border-2 border-black rounded-lg hover:bg-gray-100 transition-all"
+                className="p-2 text-black border-2 border-blue rounded-lg hover:bg-blue-light transition-all"
               >
                 <Menu size={26} />
               </button>
@@ -41,7 +41,7 @@ export const Navbar = () => {
             {/* Logo Text - Center */}
             <div className="absolute left-0 right-0 flex justify-center items-center pointer-events-none">
               <Link to="/" className="flex items-center group pointer-events-auto">
-                <span className="text-lg sm:text-2xl font-black tracking-widest text-black uppercase text-center">
+                <span className="text-lg sm:text-2xl font-bold tracking-widest text-black uppercase text-center">
                   Perfume Enclave
                 </span>
               </Link>
@@ -51,11 +51,11 @@ export const Navbar = () => {
             <div className="flex-shrink-0 flex items-center z-10">
               <button 
                 onClick={() => setIsCartOpen(true)}
-                className="relative p-2 text-black border-2 border-black rounded-lg hover:bg-gray-100 transition-all"
+                className="relative p-2 text-black border-2 border-blue rounded-lg hover:bg-blue-light transition-all"
               >
                 <ShoppingBag size={24} />
                 {totalItems > 0 && (
-                  <span className="absolute -top-2 -right-2 bg-black text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] h-[20px] flex items-center justify-center shadow-sm">
+                  <span className="absolute -top-2 -right-2 bg-blue-dark text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] h-[20px] flex items-center justify-center shadow-sm">
                     {totalItems}
                   </span>
                 )}

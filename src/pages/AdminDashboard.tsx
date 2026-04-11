@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { db, auth, handleFirestoreError, OperationType } from '../firebase';
+import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { signOut } from 'firebase/auth';
 import { Product, Review, SiteSettings } from '../types';
 import { useSettings } from '../contexts/SettingsContext';
 import { 
@@ -68,21 +70,27 @@ export const AdminDashboard = () => {
   }, [globalSettings]);
 
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      const [productsRes, ordersRes, reviewsRes] = await Promise.all([
-        supabase.from('products').select('*'),
-        supabase.from('orders').select('*'),
-        supabase.from('reviews').select('*')
-      ]);
-
-      if (productsRes.data) setProducts(productsRes.data as Product[]);
-      if (ordersRes.data) setOrders(ordersRes.data);
-      if (reviewsRes.data) setReviews(reviewsRes.data as Review[]);
+    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+      const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Product[];
+      setProducts(productsData);
       setLoading(false);
-    };
+    });
 
-    fetchData();
+    const unsubOrders = onSnapshot(collection(db, 'orders'), (snapshot) => {
+      const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setOrders(ordersData);
+    });
+
+    const unsubReviews = onSnapshot(collection(db, 'reviews'), (snapshot) => {
+      const reviewsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Review[];
+      setReviews(reviewsData);
+    });
+
+    return () => {
+      unsubProducts();
+      unsubOrders();
+      unsubReviews();
+    };
   }, []);
 
   const handleLogout = async () => {
@@ -167,74 +175,47 @@ export const AdminDashboard = () => {
         cleanEditForm.image = cleanEditForm.images[0];
       }
       
-      // Filter out undefined values to prevent Supabase errors
+      // Filter out undefined values to prevent Firestore errors
       const productData = Object.fromEntries(
         Object.entries(cleanEditForm).filter(([_, v]) => v !== undefined)
       );
 
-      const { error } = await supabase
-        .from('products')
-        .update(productData)
-        .eq('id', editingId);
-      
-      if (error) throw error;
-
+      const docRef = doc(db, 'products', editingId);
+      await updateDoc(docRef, productData);
       showSuccess('Product updated successfully');
       setEditingId(null);
     } catch (error) {
-      console.error('Error updating product:', error);
-      alert('Failed to update product');
+      handleFirestoreError(error, OperationType.UPDATE, `products/${editingId}`);
     }
   };
 
   const handleDeleteProduct = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from('products')
-        .delete()
-        .eq('id', id);
-      
-      if (error) throw error;
-      
+      await deleteDoc(doc(db, 'products', id));
       showSuccess('Product deleted successfully');
       setDeleteConfirm(null);
     } catch (error) {
-      console.error('Error deleting product:', error);
-      alert('Failed to delete product');
+      handleFirestoreError(error, OperationType.DELETE, `products/${id}`);
     }
   };
 
   const handleDeleteOrder = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from('orders')
-        .delete()
-        .eq('id', id);
-      
-      if (error) throw error;
-      
+      await deleteDoc(doc(db, 'orders', id));
       showSuccess('Order deleted successfully');
       setDeleteConfirm(null);
     } catch (error) {
-      console.error('Error deleting order:', error);
-      alert('Failed to delete order');
+      handleFirestoreError(error, OperationType.DELETE, `orders/${id}`);
     }
   };
 
   const handleDeleteReview = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from('reviews')
-        .delete()
-        .eq('id', id);
-      
-      if (error) throw error;
-      
+      await deleteDoc(doc(db, 'reviews', id));
       showSuccess('Review deleted successfully');
       setDeleteConfirm(null);
     } catch (error) {
-      console.error('Error deleting review:', error);
-      alert('Failed to delete review');
+      handleFirestoreError(error, OperationType.DELETE, `reviews/${id}`);
     }
   };
 
@@ -251,7 +232,7 @@ export const AdminDashboard = () => {
       Object.entries({
         ...cleanNewProduct,
         notes: newNotesInput ? newNotesInput.split(',').map(n => n.trim()).filter(n => n !== '') : [],
-        createdAt: editingProduct?.createdAt || new Date().toISOString(),
+        createdAt: editingProduct?.createdAt || Date.now(),
         image: newProduct.images && newProduct.images.length > 0 ? newProduct.images[0] : newProduct.image,
         discount: newProduct.original_price && newProduct.original_price > (newProduct.price || 0) 
           ? Math.round(((newProduct.original_price - (newProduct.price || 0)) / newProduct.original_price) * 100) 
@@ -262,20 +243,12 @@ export const AdminDashboard = () => {
     try {
       if (editingProduct) {
         // Update existing product
-        const { error } = await supabase
-          .from('products')
-          .update(productData)
-          .eq('id', editingProduct.id);
-        
-        if (error) throw error;
+        const docRef = doc(db, 'products', editingProduct.id);
+        await updateDoc(docRef, productData);
         showSuccess('Product updated successfully');
       } else {
         // Add new product
-        const { error } = await supabase
-          .from('products')
-          .insert(productData);
-        
-        if (error) throw error;
+        await addDoc(collection(db, 'products'), productData);
         showSuccess('Product added successfully');
       }
       
@@ -299,88 +272,9 @@ export const AdminDashboard = () => {
       setActiveTab('products');
       setIsSidebarOpen(false);
     } catch (error) {
-      console.error('Error adding/updating product:', error);
-      alert('Failed to add/update product');
+      handleFirestoreError(error, OperationType.WRITE, 'products');
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  // --- Order Actions ---
-  const handleOrderStatus = async (id: string, status: string) => {
-    try {
-      const { error } = await supabase
-        .from('orders')
-        .update({ status })
-        .eq('id', id);
-      
-      if (error) throw error;
-    } catch (error) {
-      console.error('Error updating order status:', error);
-      alert('Failed to update order status');
-    }
-  };
-
-  // --- Reviews Actions ---
-  const handleReviewStatus = async (id: string, status: 'approved' | 'rejected') => {
-    try {
-      const { error } = await supabase
-        .from('reviews')
-        .update({ status })
-        .eq('id', id);
-      
-      if (error) throw error;
-    } catch (error) {
-      console.error('Error updating review status:', error);
-      alert('Failed to update review status');
-    }
-  };
-
-  const handleAddManualReview = async () => {
-    if (!newReviewForm.productId || !newReviewForm.customerName || !newReviewForm.comment) {
-      alert('Please fill in all fields');
-      return;
-    }
-
-    try {
-      const reviewData = Object.fromEntries(
-        Object.entries({
-          ...newReviewForm,
-          status: 'approved',
-          createdAt: new Date().toISOString()
-        }).filter(([_, v]) => v !== undefined)
-      );
-      const { error } = await supabase
-        .from('reviews')
-        .insert(reviewData);
-      
-      if (error) throw error;
-      
-      setNewReviewForm({ productId: '', customerName: '', rating: 5, comment: '', verified: true });
-      setIsAddingReview(false);
-      alert('Verified review added successfully!');
-    } catch (error) {
-      console.error('Error adding review:', error);
-      alert('Failed to add review');
-    }
-  };
-
-  // --- Settings Actions ---
-  const handleSaveSettings = async () => {
-    try {
-      const settingsData = Object.fromEntries(
-        Object.entries(siteSettingsForm).filter(([_, v]) => v !== undefined)
-      );
-      const { error } = await supabase
-        .from('settings')
-        .upsert({ id: 'general', ...settingsData });
-      
-      if (error) throw error;
-      
-      showSuccess('Settings updated successfully');
-    } catch (error) {
-      console.error('Error saving settings:', error);
-      alert('Failed to save settings');
     }
   };
 
@@ -409,6 +303,60 @@ export const AdminDashboard = () => {
     });
     setNewNotesInput('');
     setActiveTab('products');
+  };
+
+  // --- Order Actions ---
+  const handleOrderStatus = async (id: string, status: string) => {
+    try {
+      await updateDoc(doc(db, 'orders', id), { status });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `orders/${id}`);
+    }
+  };
+
+  // --- Reviews Actions ---
+  const handleReviewStatus = async (id: string, status: 'approved' | 'rejected') => {
+    try {
+      await updateDoc(doc(db, 'reviews', id), { status });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `reviews/${id}`);
+    }
+  };
+
+  const handleAddManualReview = async () => {
+    if (!newReviewForm.productId || !newReviewForm.customerName || !newReviewForm.comment) {
+      alert('Please fill in all fields');
+      return;
+    }
+
+    try {
+      const reviewData = Object.fromEntries(
+        Object.entries({
+          ...newReviewForm,
+          status: 'approved',
+          createdAt: Date.now()
+        }).filter(([_, v]) => v !== undefined)
+      );
+      const docRef = await addDoc(collection(db, 'reviews'), reviewData);
+      setNewReviewForm({ productId: '', customerName: '', rating: 5, comment: '', verified: true });
+      setIsAddingReview(false);
+      alert('Verified review added successfully!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'reviews');
+    }
+  };
+
+  // --- Settings Actions ---
+  const handleSaveSettings = async () => {
+    try {
+      const settingsData = Object.fromEntries(
+        Object.entries(siteSettingsForm).filter(([_, v]) => v !== undefined)
+      );
+      await setDoc(doc(db, 'settings', 'general'), settingsData);
+      showSuccess('Settings updated successfully');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'settings/site');
+    }
   };
 
   if (loading) {
@@ -501,12 +449,12 @@ export const AdminDashboard = () => {
 
       {/* Sidebar */}
       <aside className={`
-        fixed md:sticky top-20 left-0 h-[calc(100vh-5rem)] w-64 bg-white border-r-2 border-black
+        fixed md:sticky top-20 left-0 h-[calc(100vh-5rem)] w-64 bg-white border-r-2 border-blue
         overflow-y-auto z-40 transition-transform duration-300 ease-in-out
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
         <div className="p-6">
-          <h2 className="text-xl font-black text-black tracking-tight mb-8">Admin Panel</h2>
+          <h2 className="text-xl font-bold text-black tracking-tight mb-8">Admin Panel</h2>
           <nav className="space-y-1">
             {navItems.map((item) => (
               <button 
@@ -515,13 +463,13 @@ export const AdminDashboard = () => {
                   setActiveTab(item.id as any);
                   setIsSidebarOpen(false);
                 }} 
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-black transition-all ${activeTab === item.id ? 'bg-black text-white shadow-sm border-2 border-black' : 'text-black/60 hover:bg-gray-100 hover:text-black border-2 border-transparent'}`}
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-bold transition-all ${activeTab === item.id ? 'bg-blue-light text-black shadow-sm border-2 border-blue' : 'text-blue-dark/60 hover:bg-blue-light hover:text-black border-2 border-transparent'}`}
               >
                 <item.icon size={18} /> <span className="text-sm">{item.label}</span>
               </button>
             ))}
-            <div className="pt-8 mt-8 border-t-2 border-black">
-              <button onClick={handleLogout} className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-black text-red-600 hover:bg-red-50 transition-colors">
+            <div className="pt-8 mt-8 border-t-2 border-blue">
+              <button onClick={handleLogout} className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-bold text-red-500 hover:bg-red-50 transition-colors">
                 <LogOut size={18} /> <span className="text-sm">Logout</span>
               </button>
             </div>
@@ -541,49 +489,49 @@ export const AdminDashboard = () => {
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-              <div className="bg-white p-5 rounded-2xl border-2 border-black shadow-sm hover:shadow-md transition-shadow">
+              <div className="bg-blue-light p-5 rounded-2xl border-2 border-blue shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="p-2 bg-black text-white rounded-lg border-2 border-black"><Package size={20} /></span>
-                  <span className="text-xs font-black text-black/70">Products</span>
+                  <span className="p-2 bg-white text-black rounded-lg border-2 border-blue"><Package size={20} /></span>
+                  <span className="text-xs font-bold text-blue-dark/70">Products</span>
                 </div>
                 <p className="text-2xl font-black text-black">{products.length}</p>
-                <p className="text-xs font-bold text-black/60 mt-1">Total items in catalog</p>
+                <p className="text-xs font-medium text-blue-dark/60 mt-1">Total items in catalog</p>
               </div>
               
-              <div className="bg-white p-5 rounded-2xl border-2 border-black shadow-sm hover:shadow-md transition-shadow">
+              <div className="bg-blue-light p-5 rounded-2xl border-2 border-blue shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="p-2 bg-black text-white rounded-lg border-2 border-black"><ShoppingBag size={20} /></span>
-                  <span className="text-xs font-black text-black/70">Orders</span>
+                  <span className="p-2 bg-white text-black rounded-lg border-2 border-blue"><ShoppingBag size={20} /></span>
+                  <span className="text-xs font-bold text-blue-dark/70">Orders</span>
                 </div>
                 <p className="text-2xl font-black text-black">{orders.length}</p>
-                <p className="text-xs font-bold text-black/60 mt-1">Total lifetime orders</p>
+                <p className="text-xs font-medium text-blue-dark/60 mt-1">Total lifetime orders</p>
               </div>
 
-              <div className="bg-white p-5 rounded-2xl border-2 border-black shadow-sm hover:shadow-md transition-shadow">
+              <div className="bg-blue-light p-5 rounded-2xl border-2 border-blue shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="p-2 bg-black text-white rounded-lg border-2 border-black"><TrendingUp size={20} /></span>
-                  <span className="text-xs font-black text-black/70">Revenue</span>
+                  <span className="p-2 bg-white text-black rounded-lg border-2 border-blue"><TrendingUp size={20} /></span>
+                  <span className="text-xs font-bold text-blue-dark/70">Revenue</span>
                 </div>
                 <p className="text-2xl font-black text-black">PKR {orders.reduce((acc, o) => acc + (o.total || 0), 0).toLocaleString()}</p>
-                <p className="text-xs font-bold text-black/60 mt-1">Total sales value</p>
+                <p className="text-xs font-medium text-blue-dark/60 mt-1">Total sales value</p>
               </div>
 
-              <div className="bg-white p-5 rounded-2xl border-2 border-black shadow-sm hover:shadow-md transition-shadow">
+              <div className="bg-blue-light p-5 rounded-2xl border-2 border-blue shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="p-2 bg-black text-white rounded-lg border-2 border-black"><BarChart3 size={20} /></span>
-                  <span className="text-xs font-black text-black/70">Low Stock</span>
+                  <span className="p-2 bg-white text-black rounded-lg border-2 border-blue"><BarChart3 size={20} /></span>
+                  <span className="text-xs font-bold text-blue-dark/70">Low Stock</span>
                 </div>
                 <p className="text-2xl font-black text-black">{products.filter(p => (p.stock || 0) <= (p.lowStockThreshold || 5)).length}</p>
-                <p className="text-xs font-bold text-black/60 mt-1">Items needing restock</p>
+                <p className="text-xs font-medium text-blue-dark/60 mt-1">Items needing restock</p>
               </div>
 
-              <div className="bg-white p-5 rounded-2xl border-2 border-black shadow-sm hover:shadow-md transition-shadow">
+              <div className="bg-blue-light p-5 rounded-2xl border-2 border-blue shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="p-2 bg-black text-white rounded-lg border-2 border-black"><Loader2 size={20} /></span>
-                  <span className="text-xs font-black text-black/70">Pending</span>
+                  <span className="p-2 bg-white text-black rounded-lg border-2 border-blue"><Loader2 size={20} /></span>
+                  <span className="text-xs font-bold text-blue-dark/70">Pending</span>
                 </div>
                 <p className="text-2xl font-black text-black">{orders.filter(o => o.status === 'pending').length}</p>
-                <p className="text-xs font-bold text-black/60 mt-1">Awaiting processing</p>
+                <p className="text-xs font-medium text-blue-dark/60 mt-1">Awaiting processing</p>
               </div>
             </div>
 
@@ -910,18 +858,11 @@ export const AdminDashboard = () => {
                                 onClick={async () => {
                                   const newStock = parseInt(window.prompt('Enter new remaining stock:', remaining.toString()) || '');
                                   if (!isNaN(newStock) && newStock >= 0) {
-                                    const { error } = await supabase
-                                      .from('products')
-                                      .update({ 
-                                        stock: newStock,
-                                        stockStatus: newStock === 0 ? 'Out of Stock' : newStock <= threshold ? 'Limited' : 'In Stock'
-                                      })
-                                      .eq('id', product.id);
-                                    
-                                    if (error) {
-                                      console.error('Error updating stock:', error);
-                                      alert('Failed to update stock');
-                                    }
+                                    const docRef = doc(db, 'products', product.id);
+                                    await updateDoc(docRef, { 
+                                      stock: newStock,
+                                      stockStatus: newStock === 0 ? 'Out of Stock' : newStock <= threshold ? 'Limited' : 'In Stock'
+                                    });
                                   }
                                 }}
                                   className="px-3 py-1 bg-black text-white font-bold rounded-lg hover:bg-blue hover:text-white border-2 border-transparent hover:border-black transition-colors text-sm"

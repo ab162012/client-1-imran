@@ -3,9 +3,10 @@ import { Link } from 'react-router-dom';
 import { PRODUCTS } from '../constants';
 import { ProductsList } from '../components/ProductsList';
 import { ProductCard } from '../components/Common';
-import { CheckCircle2, Gift, Star, MessageCircle, ShoppingBag, Truck, Clock } from 'lucide-react';
+import { CheckCircle2, Gift, Star, MessageSquare, ShoppingBag } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
-import { supabase } from '../lib/supabase';
+import { db } from '../firebase';
+import { collection, query, where, limit, onSnapshot, doc } from 'firebase/firestore';
 import { Product, Review } from '../types';
 import { FeaturedCarousel } from '../components/FeaturedCarousel';
 import { DeliveryTimeline } from '../components/DeliveryTimeline';
@@ -17,41 +18,32 @@ export const Home = () => {
   const [loadingTestimonials, setLoadingTestimonials] = useState(true);
 
   useEffect(() => {
-    const fetchTestimonials = async () => {
-      const { data, error } = await supabase
-        .from('reviews')
-        .select('*')
-        .eq('status', 'approved')
-        .limit(2);
-      
-      if (error) {
-        console.error("Error fetching testimonials:", error);
-      } else {
-        setTestimonials(data as Review[]);
-      }
+    const q = query(collection(db, 'reviews'), where('status', '==', 'approved'), limit(2));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const reviewsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Review[];
+      setTestimonials(reviewsData);
       setLoadingTestimonials(false);
-    };
-    fetchTestimonials();
+    }, (error) => {
+      console.error("Error fetching testimonials:", error);
+      setLoadingTestimonials(false);
+    });
+    return () => unsub();
   }, []);
 
   useEffect(() => {
     if (!settings?.heroProductId) return;
 
-    const fetchHeroProduct = async () => {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('id', settings.heroProductId)
-        .single();
-      
-      if (error) {
-        console.error("Error fetching hero product:", error);
-        setHeroProduct(null);
+    const unsubHero = onSnapshot(doc(db, 'products', settings.heroProductId), (docSnap) => {
+      if (docSnap.exists()) {
+        setHeroProduct({ id: docSnap.id, ...docSnap.data() } as Product);
       } else {
-        setHeroProduct(data as Product);
+        setHeroProduct(null);
       }
-    };
-    fetchHeroProduct();
+    }, (error) => {
+      console.error("Error fetching hero product:", error);
+    });
+
+    return () => unsubHero();
   }, [settings?.heroProductId]);
 
   const displayHeroName = heroProduct?.name || "Smell Different.";
@@ -59,44 +51,46 @@ export const Home = () => {
   return (
     <div className="pt-20 bg-white text-black">
       {/* OFFER BANNER */}
-      <div className="bg-black text-white text-center py-3 px-4 font-bold text-sm uppercase tracking-widest">
+      <div className="bg-blue text-white text-center py-3 px-4 font-bold text-sm uppercase tracking-widest shadow-md">
         ✨ Special Offer: Buy 5 Perfumes, Get 1 Free! ✨
       </div>
 
-      {/* 1. PERFUME ENCLAVE COLLECTION (NOW AT TOP) */}
-      <section className="py-20 bg-white border-b-2 border-black">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h1 className="text-4xl md:text-7xl font-black text-black leading-tight mb-6 tracking-tighter uppercase">
-              Perfume Enclave ⭐
+      {/* 1. HERO SECTION */}
+      <section className="relative py-16 md:py-32 flex items-center justify-center overflow-hidden bg-white border-b-2 border-blue">
+        {/* Background Pattern Effect */}
+        <div className="absolute inset-0 opacity-[0.03] pointer-events-none">
+          <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(#1E3A8A 1px, transparent 1px)', backgroundSize: '32px 32px' }}></div>
+        </div>
+
+        <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 w-full text-center">
+          <div className="flex flex-col items-center">
+            <h1 className="text-4xl md:text-7xl font-bold text-blue-dark leading-tight mb-6 tracking-tighter inline-block pb-2 uppercase">
+              <span className="font-handwriting text-5xl md:text-8xl text-blue-dark mt-4 inline-block drop-shadow-sm uppercase">perfume enclave</span>
             </h1>
-            <p className="text-base md:text-xl text-black/70 mb-10 font-bold max-w-xl mx-auto leading-relaxed">
-              Our most loved fragrances, handpicked for you. Essence of Pakistan, crafted to leave an impression.
+            <p className="text-base md:text-xl text-blue-dark/70 mb-10 font-medium max-w-xl mx-auto leading-relaxed">
+              Crafted to leave an impression. Discover our curated selection of premium fragrances that define your presence.
             </p>
-            <div className="w-20 h-2 bg-black mx-auto rounded-full mt-6" />
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-            {PRODUCTS.filter(p => p.featured).slice(0, 6).map((product) => (
-              <ProductCard key={product.id} product={product} rating={5} reviewCount={12} />
-            ))}
-          </div>
-          <div className="text-center mt-16">
+            
             <Link
-              to="/shop"
-              className="inline-flex items-center px-10 py-4 bg-black text-white font-bold text-lg rounded-full hover:bg-blue hover:text-white transition-all hover:scale-105 active:scale-95 shadow-2xl border-2 border-transparent hover:border-black"
+              to={heroProduct ? `/product/${heroProduct.id}` : "/shop"}
+              className="group inline-flex items-center px-10 md:px-14 py-4 md:py-5 bg-black text-white font-bold text-lg rounded-full hover:bg-blue hover:text-white transition-all hover:scale-105 active:scale-95 shadow-2xl border-2 border-transparent hover:border-black"
             >
-              Shop Full Collection 🛒
+              Shop Collection 🛒
+              <span className="ml-2">
+                →
+              </span>
             </Link>
           </div>
         </div>
       </section>
 
       <div className="lg:hidden">
+        <ProductsList featuredOnly={false} />
         <DeliveryTimeline />
       </div>
 
       {/* 3. VALUE STRIP (TRUST) */}
-      <section className="py-12 md:py-20 bg-gray-50 border-b-2 border-black">
+      <section className="py-12 md:py-20 bg-blue-light border-b-2 border-blue">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-12 text-center">
             {[
@@ -107,10 +101,10 @@ export const Home = () => {
             ].map((item, idx) => (
               <div 
                 key={idx}
-                className="flex flex-col items-center justify-center space-y-3 p-4 bg-white rounded-2xl border-2 border-transparent hover:border-black transition-all hover:shadow-lg group"
+                className="flex flex-col items-center justify-center space-y-3 p-4 bg-white rounded-2xl border-2 border-transparent hover:border-blue transition-all hover:shadow-lg group"
               >
-                <item.icon className="text-black group-hover:scale-110 transition-transform" size={32} />
-                <span className="font-black text-black text-sm md:text-base">{item.label}</span>
+                <item.icon className="text-blue-dark group-hover:scale-110 transition-transform" size={32} />
+                <span className="font-bold text-black text-sm md:text-base">{item.label}</span>
               </div>
             ))}
           </div>
@@ -121,20 +115,20 @@ export const Home = () => {
       <section className="py-20 md:py-32 bg-white">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div 
-            className="bg-gray-50 rounded-[2.5rem] md:rounded-[4rem] p-8 md:p-20 text-center text-black shadow-2xl relative overflow-hidden border-2 border-black"
+            className="bg-blue-light rounded-[2.5rem] md:rounded-[4rem] p-8 md:p-20 text-center text-black shadow-2xl relative overflow-hidden border-2 border-blue"
           >
-            <div className="absolute top-0 left-0 w-full h-full opacity-5 pointer-events-none">
-              <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-black rounded-full blur-[100px]" />
-              <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-black rounded-full blur-[100px]" />
+            <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
+              <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-dark rounded-full blur-[100px]" />
+              <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-blue-dark rounded-full blur-[100px]" />
             </div>
             <div className="relative z-10">
-              <h2 className="text-3xl md:text-6xl font-black mb-6 tracking-tighter text-black leading-none">Find Your Perfect Scent</h2>
-              <p className="text-lg md:text-2xl mb-12 opacity-90 max-w-2xl mx-auto text-black font-bold leading-relaxed">
+              <h2 className="text-3xl md:text-6xl font-bold mb-6 tracking-tighter text-black leading-none">Find Your Perfect Scent</h2>
+              <p className="text-lg md:text-2xl mb-12 opacity-90 max-w-2xl mx-auto text-black font-medium leading-relaxed">
                 Not sure which fragrance suits you best? Take our 30-second quiz and discover your signature scent.
               </p>
               <Link
                 to="/quiz"
-                className="inline-flex items-center px-10 md:px-14 py-4 md:py-5 bg-black text-white font-black text-lg rounded-full hover:bg-gray-800 transition-all hover:scale-105 active:scale-95 shadow-2xl border-2 border-transparent hover:border-black"
+                className="inline-flex items-center px-10 md:px-14 py-4 md:py-5 bg-black text-white font-bold text-lg rounded-full hover:bg-blue hover:text-white transition-all hover:scale-105 active:scale-95 shadow-2xl border-2 border-transparent hover:border-black"
               >
                 Start Scent Quiz ✨
               </Link>
@@ -148,24 +142,24 @@ export const Home = () => {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-16 items-center">
             <div className="order-2 md:order-1 space-y-8 text-center md:text-left">
-              <h2 className="text-3xl md:text-4xl font-black text-black tracking-tight">Why Perfume Enclave?</h2>
+              <h2 className="text-3xl md:text-4xl font-bold text-black tracking-tight">Why Perfume Enclave?</h2>
               <div className="space-y-6">
                 <div className="flex items-center justify-center md:justify-start space-x-4">
-                  <div className="w-12 h-12 rounded-full bg-white border-2 border-black flex items-center justify-center shadow-sm text-black font-black text-xl">1</div>
-                  <span className="text-xl font-black text-black">Crafted with premium ingredients</span>
+                  <div className="w-12 h-12 rounded-full bg-blue-light border-2 border-blue flex items-center justify-center shadow-sm text-black font-bold text-xl">1</div>
+                  <span className="text-xl font-bold text-black">Crafted with premium ingredients</span>
                 </div>
                 <div className="flex items-center justify-center md:justify-start space-x-4">
-                  <div className="w-12 h-12 rounded-full bg-white border-2 border-black flex items-center justify-center shadow-sm text-black font-black text-xl">2</div>
-                  <span className="text-xl font-black text-black">50% Concentration</span>
+                  <div className="w-12 h-12 rounded-full bg-blue-light border-2 border-blue flex items-center justify-center shadow-sm text-black font-bold text-xl">2</div>
+                  <span className="text-xl font-bold text-black">50% Concentration</span>
                 </div>
                 <div className="flex items-center justify-center md:justify-start space-x-4">
-                  <div className="w-12 h-12 rounded-full bg-white border-2 border-black flex items-center justify-center shadow-sm text-black font-black text-xl">3</div>
-                  <span className="text-xl font-black text-black">Luxury experience, fair price</span>
+                  <div className="w-12 h-12 rounded-full bg-blue-light border-2 border-blue flex items-center justify-center shadow-sm text-black font-bold text-xl">3</div>
+                  <span className="text-xl font-bold text-black">Luxury experience, fair price</span>
                 </div>
               </div>
             </div>
             <div className="order-1 md:order-2 flex justify-center">
-              <div className="w-full max-w-md aspect-square rounded-3xl overflow-hidden shadow-2xl border-8 border-gray-50 bg-gray-50 flex items-center justify-center">
+              <div className="w-full max-w-md aspect-square rounded-3xl overflow-hidden shadow-2xl border-8 border-blue-light bg-blue-light flex items-center justify-center">
                 {heroProduct ? (
                   <img
                     src={heroProduct.image}
@@ -174,7 +168,7 @@ export const Home = () => {
                     referrerPolicy="no-referrer"
                   />
                 ) : (
-                  <ShoppingBag className="text-black/20" size={120} />
+                  <ShoppingBag className="text-blue-dark/20" size={120} />
                 )}
               </div>
             </div>
@@ -186,8 +180,8 @@ export const Home = () => {
       <section className="py-20 md:py-32 bg-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-5xl font-black text-black mb-6 tracking-tighter">Perfect For Every Occasion</h2>
-            <div className="w-20 h-2 bg-black mx-auto rounded-full" />
+            <h2 className="text-3xl md:text-5xl font-bold text-black mb-6 tracking-tighter">Perfect For Every Occasion</h2>
+            <div className="w-20 h-1.5 bg-blue mx-auto rounded-full" />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-10">
             {[
@@ -197,10 +191,10 @@ export const Home = () => {
             ].map((item, idx) => (
               <div 
                 key={idx}
-                className="bg-gray-50 p-10 rounded-[2.5rem] text-center border-2 border-black hover:bg-black hover:text-white transition-all hover:-translate-y-2 cursor-default group"
+                className="bg-blue-light p-10 rounded-[2.5rem] text-center border-2 border-blue hover:bg-blue hover:text-white transition-all hover:-translate-y-2 cursor-default group"
               >
                 <div className="text-5xl mb-6 group-hover:scale-125 transition-transform">{item.emoji}</div>
-                <h3 className="text-2xl font-black tracking-tight">{item.label}</h3>
+                <h3 className="text-2xl font-bold tracking-tight">{item.label}</h3>
               </div>
             ))}
           </div>
@@ -220,30 +214,30 @@ export const Home = () => {
       <section className="py-24 bg-white">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-black text-black mb-4 tracking-tight">What They Say</h2>
-            <div className="w-16 h-1.5 bg-black mx-auto rounded-full" />
+            <h2 className="text-3xl md:text-4xl font-bold text-black mb-4 tracking-tight">What They Say</h2>
+            <div className="w-16 h-1 bg-blue mx-auto rounded-full" />
           </div>
           
           {loadingTestimonials ? (
             <div className="flex justify-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue"></div>
             </div>
           ) : testimonials.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               {testimonials.map((review) => (
-                <div key={review.id} className="bg-gray-50 p-8 rounded-3xl shadow-sm border-2 border-black text-center">
+                <div key={review.id} className="bg-blue-light p-8 rounded-3xl shadow-sm border-2 border-blue text-center">
                   <div className="flex justify-center text-yellow-500 mb-4">
                     {[...Array(5)].map((_, i) => (
-                      <Star key={i} fill={i < review.rating ? "currentColor" : "none"} size={20} className={i < review.rating ? "" : "text-black/20"} />
+                      <Star key={i} fill={i < review.rating ? "currentColor" : "none"} size={20} className={i < review.rating ? "" : "text-blue-dark/20"} />
                     ))}
                   </div>
-                  <p className="text-black/80 italic mb-4 font-bold">"{review.comment}"</p>
-                  <p className="font-black text-black">— {review.customerName}</p>
+                  <p className="text-blue-dark/80 italic mb-4 font-medium">"{review.comment}"</p>
+                  <p className="font-bold text-black">— {review.customerName}</p>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="text-center py-12 text-black/40 font-black">
+            <div className="text-center py-12 text-blue-dark/40 font-bold">
               No reviews yet. Be the first to share your experience!
             </div>
           )}
@@ -251,14 +245,14 @@ export const Home = () => {
       </section>
 
       {/* 9. FINAL CTA */}
-      <section className="py-32 bg-gray-50 text-center border-t-2 border-black">
+      <section className="py-32 bg-blue-light text-center border-t-2 border-blue">
         <div className="max-w-3xl mx-auto px-4">
-          <h2 className="text-4xl md:text-5xl font-black text-black mb-8 tracking-tight">
+          <h2 className="text-4xl md:text-5xl font-bold text-black mb-8 tracking-tight">
             Find Your Signature Scent
           </h2>
           <Link
             to="/shop"
-            className="inline-flex items-center px-12 py-4 bg-black text-white font-black text-lg rounded-full hover:bg-gray-800 transition-all hover:scale-105 active:scale-95 shadow-xl border-2 border-transparent hover:border-black"
+            className="inline-flex items-center px-12 py-4 bg-black text-white font-bold text-lg rounded-full hover:bg-blue hover:text-white transition-all hover:scale-105 active:scale-95 shadow-xl border-2 border-transparent hover:border-black"
           >
             Shop Now 🛒
           </Link>
@@ -272,14 +266,14 @@ export const Shop = () => {
   return (
     <div className="pt-32 pb-24 bg-white min-h-screen">
       {/* OFFER BANNER */}
-      <div className="bg-black text-white text-center py-3 px-4 font-black text-sm uppercase tracking-widest mb-12 max-w-5xl mx-auto rounded-full shadow-lg border-2 border-black">
+      <div className="bg-black text-white text-center py-3 px-4 font-bold text-sm uppercase tracking-widest mb-12 max-w-5xl mx-auto rounded-full shadow-lg">
         ✨ Special Offer: Buy 5 Perfumes, Get 1 Free! ✨
       </div>
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-16 text-center">
-          <h1 className="text-4xl md:text-5xl font-black text-black mb-4 tracking-tight">Our Collection</h1>
-          <div className="w-16 h-1.5 bg-black mx-auto rounded-full" />
+          <h1 className="text-4xl md:text-5xl font-bold text-black mb-4 tracking-tight">Our Collection</h1>
+          <div className="w-16 h-1 bg-blue mx-auto rounded-full" />
         </div>
         <ProductsList />
       </div>
@@ -299,46 +293,46 @@ export const Contact = () => {
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-          <div className="bg-gray-50 p-8 rounded-3xl border-2 border-black shadow-sm space-y-6">
-            <h2 className="text-2xl font-black text-black">Get in Touch</h2>
-            <p className="text-black/70 font-bold">Have questions about our fragrances or your order? We're here to help!</p>
+          <div className="bg-blue-light p-8 rounded-3xl border-2 border-blue shadow-sm space-y-6">
+            <h2 className="text-2xl font-bold text-black">Get in Touch</h2>
+            <p className="text-blue-dark/70 font-medium">Have questions about our fragrances or your order? We're here to help!</p>
             
             <div className="space-y-4">
               <div className="flex items-center space-x-4">
-                <div className="w-10 h-10 bg-white border-2 border-black rounded-full flex items-center justify-center text-black">
-                  <MessageCircle size={20} />
+                <div className="w-10 h-10 bg-white border-2 border-blue rounded-full flex items-center justify-center text-black">
+                  <MessageSquare size={20} />
                 </div>
                 <div>
-                  <p className="font-black text-black">WhatsApp Us</p>
-                  <p className="text-black font-bold">+92 305 8678521</p>
+                  <p className="font-bold text-black">Email Us</p>
+                  <p className="text-blue-dark/60 font-medium">infoperfumeenclave@gmail.com</p>
                 </div>
               </div>
               <div className="flex items-center space-x-4">
-                <div className="w-10 h-10 bg-white border-2 border-black rounded-full flex items-center justify-center text-black">
-                  <ShoppingBag size={20} />
+                <div className="w-10 h-10 bg-white border-2 border-blue rounded-full flex items-center justify-center text-black">
+                  <CheckCircle2 size={20} />
                 </div>
                 <div>
-                  <p className="font-black text-black">Email Us</p>
-                  <p className="text-black font-bold">infoperfumeenclave@gmail.com</p>
+                  <p className="font-bold text-black">Response Time</p>
+                  <p className="text-blue-dark/60 font-medium">Within 24 hours</p>
                 </div>
               </div>
             </div>
           </div>
           
-          <form className="bg-gray-50 p-8 rounded-3xl border-2 border-black shadow-sm space-y-4">
+          <form className="bg-blue-light p-8 rounded-3xl border-2 border-blue shadow-sm space-y-4">
             <div>
-              <label className="block text-sm font-black text-black mb-1">Name</label>
-              <input type="text" className="w-full p-3 border-2 border-black bg-white text-black rounded-xl focus:ring-2 focus:ring-black outline-none font-bold" placeholder="Your Name" />
+              <label className="block text-sm font-bold text-black mb-1">Name</label>
+              <input type="text" className="w-full p-3 border-2 border-blue bg-white text-black rounded-xl focus:ring-2 focus:ring-blue-dark outline-none font-medium" placeholder="Your Name" />
             </div>
             <div>
-              <label className="block text-sm font-black text-black mb-1">Email</label>
-              <input type="email" className="w-full p-3 border-2 border-black bg-white text-black rounded-xl focus:ring-2 focus:ring-black outline-none font-bold" placeholder="your@email.com" />
+              <label className="block text-sm font-bold text-black mb-1">Email</label>
+              <input type="email" className="w-full p-3 border-2 border-blue bg-white text-black rounded-xl focus:ring-2 focus:ring-blue-dark outline-none font-medium" placeholder="your@email.com" />
             </div>
             <div>
-              <label className="block text-sm font-black text-black mb-1">Message</label>
-              <textarea rows={4} className="w-full p-3 border-2 border-black bg-white text-black rounded-xl focus:ring-2 focus:ring-black outline-none font-bold" placeholder="How can we help?"></textarea>
+              <label className="block text-sm font-bold text-black mb-1">Message</label>
+              <textarea rows={4} className="w-full p-3 border-2 border-blue bg-white text-black rounded-xl focus:ring-2 focus:ring-blue-dark outline-none font-medium" placeholder="How can we help?"></textarea>
             </div>
-            <button type="button" className="w-full py-3 bg-black text-white font-black rounded-xl hover:bg-gray-800 border-2 border-transparent hover:border-black transition-colors">
+            <button type="button" className="w-full py-3 bg-black text-white font-bold rounded-xl hover:bg-blue hover:text-white border-2 border-transparent hover:border-black transition-colors">
               Send Message
             </button>
           </form>

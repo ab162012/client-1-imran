@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { auth } from '../firebase';
+import { signInAnonymously } from 'firebase/auth';
 import { Lock } from 'lucide-react';
 
 export const AdminLogin = () => {
@@ -29,6 +31,12 @@ export const AdminLogin = () => {
       const data = await response.json();
       
       if (data.success) {
+        // Sign in anonymously to Firebase to satisfy security rules
+        try {
+          await signInAnonymously(auth);
+        } catch (authError) {
+          console.warn("Anonymous auth restricted, proceeding with local token only:", authError);
+        }
         localStorage.setItem('adminToken', data.token);
         navigate('/admin');
       } else {

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { db } from '../firebase';
+import { collection, onSnapshot } from 'firebase/firestore';
 import { Product, Review } from '../types';
 import { ProductCard } from './Common';
 
@@ -13,42 +14,41 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
 
-  const categories = ['All', 'Men', 'Unisex'];
+  const categories = ['All', 'Men', 'Unisex', 'Women'];
 
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
+    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+      let productsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Product[];
       
-      // Fetch products
-      let query = supabase.from('products').select('*');
+      // No filters applied, show all products
       
       if (featuredOnly) {
-        query = query.eq('featured', true);
+        productsData = productsData.filter(p => p.featured);
       }
-      
-      const { data: productsData, error: productsError } = await query;
-      
-      if (productsError) {
-        console.error('Error fetching products:', productsError);
-      } else {
-        // Filter out women's products
-        const filteredProducts = (productsData as Product[]).filter(p => p.category?.toLowerCase() !== 'women');
-        setProducts(filteredProducts);
-      }
-
-      // Fetch reviews
-      const { data: reviewsData, error: reviewsError } = await supabase.from('reviews').select('*').eq('status', 'approved');
-      
-      if (reviewsError) {
-        console.error('Error fetching reviews:', reviewsError);
-      } else {
-        setReviews(reviewsData as Review[]);
-      }
-      
+      setProducts(productsData);
       setLoading(false);
-    };
+    }, (error) => {
+      console.error('Error fetching products:', error);
+      setLoading(false);
+    });
 
-    fetchData();
+    const unsubReviews = onSnapshot(collection(db, 'reviews'), (snapshot) => {
+      const reviewsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Review[];
+      setReviews(reviewsData);
+    }, (error) => {
+      console.error('Error fetching reviews:', error);
+    });
+
+    return () => {
+      unsubProducts();
+      unsubReviews();
+    };
   }, [featuredOnly]);
 
   if (loading) {
@@ -92,9 +92,9 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
         </div>
       )}
       
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-12 max-w-4xl mx-auto">
+      <div className="grid grid-cols-2 md:grid-cols-2 gap-4 md:gap-12 max-w-4xl mx-auto">
         {filteredProducts.map((product) => {
-          const productReviews = reviews.filter(r => r.productId === product.id);
+          const productReviews = reviews.filter(r => r.productId === product.id && r.status === 'approved');
           const avgRating = productReviews.length > 0 
             ? productReviews.reduce((acc, r) => acc + r.rating, 0) / productReviews.length 
             : 0;

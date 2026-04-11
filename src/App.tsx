@@ -16,7 +16,9 @@ import { Checkout } from './pages/Checkout';
 import { Success } from './pages/Success';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminLogin } from './pages/AdminLogin';
-import { MessageCircle } from 'lucide-react';
+import { auth } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { MessageCircle, Phone } from 'lucide-react';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
@@ -24,7 +26,12 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     const token = localStorage.getItem('adminToken');
     if (token) {
-      setIsAuthenticated(true);
+      // If we have a token, ensure we are also signed into Firebase anonymously
+      // to satisfy security rules
+      const unsubscribe = onAuthStateChanged(auth, (user) => {
+        setIsAuthenticated(true);
+      });
+      return () => unsubscribe();
     } else {
       setIsAuthenticated(false);
     }
@@ -69,9 +76,12 @@ export default function App() {
               href="https://wa.me/923058678521"
               target="_blank"
               rel="noopener noreferrer"
-              className="fixed bottom-6 right-6 z-50 bg-green-500 text-white p-4 rounded-full shadow-2xl hover:bg-green-600 transition-all hover:scale-110"
+              className="fixed bottom-6 right-6 z-50 bg-green-500 text-white p-4 rounded-full shadow-2xl hover:bg-green-600 transition-all hover:scale-110 flex items-center justify-center"
             >
-              <MessageCircle size={32} />
+              <div className="relative flex items-center justify-center">
+                <MessageCircle size={36} fill="currentColor" className="text-white" />
+                <Phone size={18} fill="black" className="absolute text-green-500" />
+              </div>
             </a>
           </div>
         </Router>

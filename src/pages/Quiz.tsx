@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { db } from '../firebase';
+import { collection, onSnapshot } from 'firebase/firestore';
 import { Product } from '../types';
 import { ArrowRight, ArrowLeft, RefreshCw, ShoppingBag, Sparkles } from 'lucide-react';
 import { ProductCard } from '../components/Common';
@@ -50,19 +51,19 @@ export const Quiz = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchProducts = async () => {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*');
-      
-      if (error) {
-        console.error('Error fetching products:', error);
-      } else {
-        setProducts(data as Product[]);
-      }
+    const unsub = onSnapshot(collection(db, 'products'), (snapshot) => {
+      const productsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Product[];
+      setProducts(productsData);
       setLoading(false);
-    };
-    fetchProducts();
+    }, (error) => {
+      console.error('Error fetching products:', error);
+      setLoading(false);
+    });
+
+    return () => unsub();
   }, []);
 
   const handleAnswer = (value: string) => {

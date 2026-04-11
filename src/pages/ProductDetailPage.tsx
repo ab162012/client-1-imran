@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { db } from '../firebase';
+import { doc, onSnapshot, collection, query, where, addDoc, updateDoc, increment, limit, getDocs } from 'firebase/firestore';
 import { Product, Review } from '../types';
 import { useCart } from '../hooks/useCart';
 import { Minus, Plus, ShoppingBag, ArrowLeft, ShieldCheck, Zap, Eye, Star, TrendingUp, Heart, Clock, MapPin, CheckCircle2 } from 'lucide-react';
@@ -36,55 +37,38 @@ export const ProductDetailPage = () => {
 
     if (!id) return;
 
-    // Fetch Product
-    const fetchProduct = async () => {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('id', id)
-        .single();
-      
-      if (error) {
-        console.error('Error fetching product:', error);
-        setProduct(null);
+    // Real-time Product Listener
+    const unsubProduct = onSnapshot(doc(db, 'products', id), (docSnap) => {
+      if (docSnap.exists()) {
+        const prodData = { id: docSnap.id, ...docSnap.data() } as Product;
+        setProduct(prodData);
+        setMainImage(prev => prev || prodData.image); // Set main image if not already set
       } else {
-        setProduct(data as Product);
-        setMainImage(prev => prev || data.image);
+        setProduct(null);
       }
       setLoading(false);
-    };
-    fetchProduct();
+    }, (error) => {
+      console.error('Error fetching product:', error);
+      setLoading(false);
+    });
 
-    // Fetch Reviews
-    const fetchReviews = async () => {
-      const { data, error } = await supabase
-        .from('reviews')
-        .select('*')
-        .eq('productId', id)
-        .eq('status', 'approved');
-      
-      if (error) {
-        console.error("Error fetching reviews:", error);
-      } else {
-        setReviews(data as Review[]);
-      }
-    };
-    fetchReviews();
+    // Real-time Reviews Listener
+    const q = query(collection(db, 'reviews'), where('productId', '==', id), where('status', '==', 'approved'));
+    const unsubReviews = onSnapshot(q, (snapshot) => {
+      const reviewsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Review[];
+      setReviews(reviewsData);
+    }, (error) => {
+      console.error('Error fetching reviews:', error);
+    });
 
     // Fetch Bundles (Other products)
     const fetchBundles = async () => {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('featured', true)
-        .limit(4);
-      
-      if (error) {
-        console.error("Error fetching bundles:", error);
-      } else {
-        const bundleData = (data as Product[]).filter(p => p.id !== id);
-        setBundles(bundleData.slice(0, 2));
-      }
+      const qBundles = query(collection(db, 'products'), where('featured', '==', true), limit(3));
+      const snap = await getDocs(qBundles);
+      const bundleData = snap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Product))
+        .filter(p => p.id !== id);
+      setBundles(bundleData.slice(0, 2));
     };
     fetchBundles();
 
@@ -106,18 +90,9 @@ export const ProductDetailPage = () => {
     // Increment views (one-time)
     const incrementViews = async () => {
       try {
-        const { data: currentProduct, error: fetchError } = await supabase
-          .from('products')
-          .select('views')
-          .eq('id', id)
-          .single();
-        
-        if (fetchError) throw fetchError;
-        
-        await supabase
-          .from('products')
-          .update({ views: (currentProduct.views || 0) + 1 })
-          .eq('id', id);
+        await updateDoc(doc(db, 'products', id), {
+          views: increment(1)
+        });
       } catch (e) {
         console.error("Failed to increment views", e);
       }
@@ -125,6 +100,8 @@ export const ProductDetailPage = () => {
     incrementViews();
 
     return () => {
+      unsubProduct();
+      unsubReviews();
       clearInterval(notificationInterval);
     };
   }, [id]);
@@ -135,19 +112,14 @@ export const ProductDetailPage = () => {
     
     setReviewSubmitting(true);
     try {
-      const { error } = await supabase
-        .from('reviews')
-        .insert({
-          productId: id,
-          customerName: newReview.name,
-          rating: newReview.rating,
-          comment: newReview.comment,
-          status: 'pending',
-          createdAt: new Date().toISOString()
-        });
-      
-      if (error) throw error;
-      
+      await addDoc(collection(db, 'reviews'), {
+        productId: id,
+        customerName: newReview.name,
+        rating: newReview.rating,
+        comment: newReview.comment,
+        status: 'pending',
+        createdAt: Date.now()
+      });
       setReviewSuccess(true);
       setNewReview({ name: '', rating: 5, comment: '' });
     } catch (error) {

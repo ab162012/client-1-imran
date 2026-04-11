@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { CartItem, Product } from '../types';
-import { supabase } from '../lib/supabase';
+import { db } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 interface CartContextType {
   cart: CartItem[];
@@ -24,46 +25,48 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('perfume_enclave_cart', JSON.stringify(cart));
   }, [cart]);
 
-  // Sync cart items with latest data from Supabase
+  // Sync cart items with latest data from Firestore
   useEffect(() => {
     const syncCart = async () => {
       if (cart.length === 0) return;
 
       try {
-        const productIds = cart.map(item => item.id);
-        const { data: products, error } = await supabase
-          .from('products')
-          .select('*')
-          .in('id', productIds);
-
-        if (error) throw error;
-
-        const updatedCart = cart.map((item) => {
-          const latestData = products?.find(p => p.id === item.id);
-          
-          if (latestData) {
-            const latestImage = latestData.image || (latestData.images && latestData.images.length > 0 ? latestData.images[0] : '');
-            
-            // Only update if data actually changed to avoid unnecessary re-renders
-            if (
-              Number(latestData.price) !== Number(item.price) || 
-              latestData.name !== item.name || 
-              latestImage !== item.image ||
-              Number(latestData.original_price) !== Number(item.original_price)
-            ) {
-              return { 
-                ...item, 
-                ...latestData, 
-                price: Number(latestData.price), 
-                original_price: latestData.original_price ? Number(latestData.original_price) : undefined,
-                image: latestImage
-              };
+        const updatedCart = await Promise.all(
+          cart.map(async (item) => {
+            try {
+              const docRef = doc(db, 'products', item.id);
+              const docSnap = await getDoc(docRef);
+              
+              if (docSnap.exists()) {
+                const latestData = docSnap.data() as Product;
+                // Ensure image is correctly picked from images array if main image is missing
+                const latestImage = latestData.image || (latestData.images && latestData.images.length > 0 ? latestData.images[0] : '');
+                
+                // Only update if data actually changed to avoid unnecessary re-renders
+                if (
+                  Number(latestData.price) !== Number(item.price) || 
+                  latestData.name !== item.name || 
+                  latestImage !== item.image ||
+                  Number(latestData.original_price) !== Number(item.original_price)
+                ) {
+                  return { 
+                    ...item, 
+                    ...latestData, 
+                    price: Number(latestData.price), 
+                    original_price: latestData.original_price ? Number(latestData.original_price) : undefined,
+                    image: latestImage
+                  };
+                }
+                return item;
+              }
+              // If product no longer exists, we'll filter it out later
+              return null;
+            } catch (err) {
+              console.error(`Error syncing item ${item.id}:`, err);
+              return item;
             }
-            return item;
-          }
-          // If product no longer exists, we'll filter it out later
-          return null;
-        });
+          })
+        );
 
         // Filter out nulls (deleted products) and check for changes
         const filteredCart = updatedCart.filter((item): item is CartItem => item !== null);

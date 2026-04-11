@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Product } from '../types';
-import { supabase } from '../lib/supabase';
+import { db } from '../firebase';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { ProductCard } from './Common';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -10,19 +11,12 @@ export const FeaturedCarousel = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
 
   useEffect(() => {
-    const fetchFeaturedProducts = async () => {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('featured', true);
-      
-      if (error) {
-        console.error("Error fetching featured products:", error);
-      } else {
-        setProducts(data as Product[]);
-      }
-    };
-    fetchFeaturedProducts();
+    const q = query(collection(db, 'products'), where('featured', '==', true));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product));
+      setProducts(data);
+    });
+    return () => unsub();
   }, []);
 
   useEffect(() => {

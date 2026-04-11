@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { db } from '../firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { SiteSettings } from '../types';
 
 interface SettingsContextType {
@@ -26,23 +27,23 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchSettings = async () => {
-      const { data, error } = await supabase
-        .from('settings')
-        .select('*')
-        .eq('id', 'general')
-        .single();
-      
-      if (error) {
-        console.error("Error fetching settings:", error);
-      } else if (data) {
-        const newSettings = { ...defaultSettings, ...data } as SiteSettings;
+    const unsubscribe = onSnapshot(doc(db, 'settings', 'general'), (docSnap) => {
+      if (docSnap.exists()) {
+        const newSettings = { ...defaultSettings, ...docSnap.data() } as SiteSettings;
         setSettings(newSettings);
+        
+        // Apply primary color dynamically
+        // if (newSettings.primaryColor) {
+        //   document.documentElement.style.setProperty('--color-blue', newSettings.primaryColor);
+        // }
       }
       setLoading(false);
-    };
+    }, (error) => {
+      console.error("Error fetching settings:", error);
+      setLoading(false);
+    });
 
-    fetchSettings();
+    return () => unsubscribe();
   }, []);
 
   return (
