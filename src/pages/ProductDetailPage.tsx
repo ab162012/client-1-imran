@@ -97,6 +97,7 @@ export const ProductDetailPage = () => {
         });
       } catch (e) {
         console.error("Failed to increment views", e);
+        handleFirestoreError(e, OperationType.UPDATE, `products/${id}`);
       }
     };
     incrementViews();
