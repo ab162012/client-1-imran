@@ -1,57 +1,46 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth } from '../firebase';
-import { signInAnonymously } from 'firebase/auth';
-import { Lock } from 'lucide-react';
+import { signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
+import { Lock, Mail, Key, Loader2 } from 'lucide-react';
 
 export const AdminLogin = () => {
-  const [key, setKey] = useState('');
+  const [email, setEmail] = useState('admin@perfumeenclave.com');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const token = localStorage.getItem('adminToken');
-    if (token) {
-      navigate('/admin');
-    }
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user && !user.isAnonymous) {
+        navigate('/admin');
+      }
+    });
+    return () => unsubscribe();
   }, [navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+    
     try {
-      const response = await fetch('/api/admin/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key }),
-      });
-      
-      let data;
-      try {
-        data = await response.json();
-      } catch (e) {
-        throw new Error('Server returned an invalid response');
-      }
-      
-      if (data.success) {
-        // Sign in anonymously to Firebase to satisfy security rules
-        try {
-          await signInAnonymously(auth);
-        } catch (authError) {
-          console.warn("Anonymous auth restricted, proceeding with local token only:", authError);
-        }
-        localStorage.setItem('adminToken', data.token);
-        navigate('/admin');
-      } else {
-        setError(data.message || 'Invalid Admin Key');
-      }
+      await signInWithEmailAndPassword(auth, email, password);
+      // Success will be handled by onAuthStateChanged
     } catch (err: any) {
       console.error('Login error:', err);
-      setError(err.message === 'Failed to fetch' 
-        ? 'Could not connect to server. Please ensure the backend is running.' 
-        : `Error: ${err.message || 'Unknown error occurred'}`);
+      let message = 'Invalid email or password';
+      
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        message = 'Invalid Admin Credentials. Please check your email and password.';
+      } else if (err.code === 'auth/too-many-requests') {
+        message = 'Too many failed attempts. Please try again later.';
+      } else if (err.code === 'auth/network-request-failed') {
+        message = 'Network error. Please check your internet connection.';
+      }
+      
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -66,7 +55,7 @@ export const AdminLogin = () => {
           </div>
           <h1 className="text-2xl font-medium text-white">Admin Access</h1>
           <p className="text-white/60 text-sm mt-2 text-center">
-            Enter your secure admin key to continue.
+            Sign in with your admin credentials to manage your store.
           </p>
         </div>
 
@@ -78,24 +67,57 @@ export const AdminLogin = () => {
 
         <form onSubmit={handleLogin} className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-white/70 mb-2">Admin Key</label>
-            <input
-              type="password"
-              required
-              placeholder="Enter Access Key"
-              className="w-full p-4 border border-white bg-black text-white rounded-2xl focus:ring-2 focus:ring-white outline-none transition-all"
-              value={key || ''}
-              onChange={(e) => setKey(e.target.value)}
-            />
+            <label className="block text-sm font-medium text-white/70 mb-2">Admin Email</label>
+            <div className="relative">
+              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" size={20} />
+              <input
+                type="email"
+                required
+                placeholder="admin@example.com"
+                className="w-full pl-12 pr-4 py-4 border border-white bg-black text-white rounded-2xl focus:ring-2 focus:ring-white outline-none transition-all"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-white/70 mb-2">Password / Access Key</label>
+            <div className="relative">
+              <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" size={20} />
+              <input
+                type="password"
+                required
+                placeholder="Enter Password"
+                className="w-full pl-12 pr-4 py-4 border border-white bg-black text-white rounded-2xl focus:ring-2 focus:ring-white outline-none transition-all"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+          </div>
+
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-4 bg-white text-black font-medium rounded-2xl hover:bg-blue-light transition-all shadow-lg shadow-white/20 disabled:opacity-50"
+            className="w-full py-4 bg-white text-black font-bold rounded-2xl hover:bg-blue-light transition-all shadow-lg shadow-white/20 disabled:opacity-50 flex items-center justify-center space-x-2"
           >
-            {loading ? 'Verifying...' : 'Access Dashboard'}
+            {loading ? (
+              <>
+                <Loader2 className="animate-spin" size={20} />
+                <span>Verifying...</span>
+              </>
+            ) : (
+              <span>Access Dashboard</span>
+            )}
           </button>
         </form>
+
+        <div className="mt-8 pt-6 border-t border-white/10 text-center">
+          <p className="text-white/40 text-xs">
+            Note: Ensure Email/Password authentication is enabled in your Firebase Console.
+            Default Admin: admin@perfumeenclave.com
+          </p>
+        </div>
       </div>
     </div>
   );

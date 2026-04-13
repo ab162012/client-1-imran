@@ -17,10 +17,16 @@ export interface Product {
   featured?: boolean;
   badge?: string;
   category?: string;
+  sizePrices?: {
+    '30ml'?: number;
+    '50ml'?: number;
+    '100ml'?: number;
+  };
 }
 
 export interface CartItem extends Product {
   quantity: number;
+  selectedSize: '30ml' | '50ml' | '100ml';
 }
 
 export interface Order {
@@ -37,6 +43,7 @@ export interface Order {
     name: string;
     price: number;
     quantity: number;
+    size: string;
   }[];
   total: number;
   status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';

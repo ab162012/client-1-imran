@@ -1,4 +1,4 @@
-import { db } from '../firebase';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, addDoc, doc, runTransaction } from 'firebase/firestore';
 import { CartItem } from '../types';
 
@@ -90,29 +90,31 @@ export const EcommerceApi = {
         const orderRef = doc(collection(db, 'orders'));
         transaction.set(orderRef, orderData);
         orderId = orderRef.id;
+        
+        // Send email notification to admin with FULL details
+        try {
+          await fetch('/api/order-notification', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderId,
+              customer: customerData,
+              products: productsWithLatestData,
+              total: latestTotal,
+              timestamp: orderData.timestamp
+            })
+          });
+        } catch (e) {
+          console.warn("Failed to send admin notification:", e);
+        }
       });
-      
-      // Send email notification to admin
-      try {
-        await fetch('/api/order-notification', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            orderId,
-            customerEmail: customerData.email,
-            total: latestTotal
-          })
-        });
-      } catch (e) {
-        console.warn("Failed to send admin notification:", e);
-      }
       
       return {
         success: true,
         orderId
       };
     } catch (error) {
-      console.error('Checkout error:', error);
+      handleFirestoreError(error, OperationType.WRITE, 'checkout');
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'

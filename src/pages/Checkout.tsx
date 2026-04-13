@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCart } from '../hooks/useCart';
 import { CheckCircle2, CreditCard, Truck, Loader2, ShoppingBag } from 'lucide-react';
-import { EcommerceApi } from '../api/EcommerceApi';
+import { OrderService } from '../services/OrderService';
 
 export const Checkout = () => {
   const { cart, totalPrice, clearCart } = useCart();
@@ -25,13 +25,17 @@ export const Checkout = () => {
     }
     setLoading(true);
     
-    const result = await EcommerceApi.initializeCheckout(cart, formData);
+    const result = await OrderService.submitOrder({
+      customer: formData,
+      products: cart,
+      total: totalPrice
+    });
     
     if (result.success) {
       clearCart();
-      navigate('/success');
+      navigate('/success', { state: { orderId: result.orderId } });
     } else {
-      alert('Checkout failed: ' + result.error);
+      alert(result.error);
       setLoading(false);
     }
   };
@@ -164,6 +168,7 @@ export const Checkout = () => {
                       </div>
                       <div>
                         <div className="font-bold text-black text-base">{item.name}</div>
+                        <div className="text-[10px] font-black text-blue-dark/40 uppercase mb-1">{item.selectedSize || '50ml'}</div>
                         <div className="text-blue-dark/60 font-bold">
                           PKR {Number(item.price).toLocaleString()} x {item.quantity}
                         </div>

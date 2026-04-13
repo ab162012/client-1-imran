@@ -22,6 +22,7 @@ export const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'product' | 'order' | 'review' } | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const { settings: globalSettings } = useSettings();
   const navigate = useNavigate();
 
@@ -42,7 +43,12 @@ export const AdminDashboard = () => {
     notes: [],
     usage: '',
     stockStatus: 'In Stock',
-    featured: false
+    featured: false,
+    sizePrices: {
+      '30ml': 0,
+      '50ml': 0,
+      '100ml': 0
+    }
   });
   const [newNotesInput, setNewNotesInput] = useState('');
 
@@ -74,16 +80,23 @@ export const AdminDashboard = () => {
       const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Product[];
       setProducts(productsData);
       setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'products');
+      setLoading(false);
     });
 
     const unsubOrders = onSnapshot(collection(db, 'orders'), (snapshot) => {
       const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setOrders(ordersData);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'orders');
     });
 
     const unsubReviews = onSnapshot(collection(db, 'reviews'), (snapshot) => {
       const reviewsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Review[];
       setReviews(reviewsData);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'reviews');
     });
 
     return () => {
@@ -94,8 +107,12 @@ export const AdminDashboard = () => {
   }, []);
 
   const handleLogout = async () => {
-    localStorage.removeItem('adminToken');
-    navigate('/admin-login');
+    try {
+      await signOut(auth);
+      navigate('/admin-login');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
   // --- Image Handling ---
@@ -265,7 +282,12 @@ export const AdminDashboard = () => {
         notes: [],
         usage: '',
         stockStatus: 'In Stock',
-        featured: false
+        featured: false,
+        sizePrices: {
+          '30ml': 0,
+          '50ml': 0,
+          '100ml': 0
+        }
       });
       setNewNotesInput('');
       setEditingProduct(null);
@@ -299,7 +321,12 @@ export const AdminDashboard = () => {
       notes: [],
       usage: '',
       stockStatus: 'In Stock',
-      featured: false
+      featured: false,
+      sizePrices: {
+        '30ml': 0,
+        '50ml': 0,
+        '100ml': 0
+      }
     });
     setNewNotesInput('');
     setActiveTab('products');
@@ -413,6 +440,135 @@ export const AdminDashboard = () => {
                 className="w-full py-4 bg-blue-light text-black font-bold rounded-2xl hover:bg-blue transition-colors"
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Order Details Modal */}
+      {selectedOrder && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            onClick={() => setSelectedOrder(null)}
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+          />
+          <div className="relative bg-white border-2 border-blue rounded-[2.5rem] max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="bg-blue-light p-6 border-b-2 border-blue flex justify-between items-center">
+              <div>
+                <h3 className="text-xl font-black text-black tracking-tight">Order Details</h3>
+                <p className="text-xs font-bold text-blue-dark/60">ID: {selectedOrder.id}</p>
+              </div>
+              <button 
+                onClick={() => setSelectedOrder(null)}
+                className="p-2 hover:bg-white rounded-full transition-colors border-2 border-transparent hover:border-blue"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 overflow-y-auto space-y-8">
+              {/* Customer & Status */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <h4 className="text-xs font-black text-blue-dark/40 uppercase tracking-widest">Customer Information</h4>
+                  <div className="space-y-2 bg-blue-light/30 p-4 rounded-2xl border-2 border-blue/20">
+                    <p className="font-bold text-black text-lg">{selectedOrder.customer?.name}</p>
+                    <p className="text-sm text-blue-dark/70 font-medium">{selectedOrder.customer?.email}</p>
+                    <p className="text-sm text-blue-dark/70 font-medium">{selectedOrder.customer?.phone}</p>
+                    <div className="pt-2 mt-2 border-t border-blue/20">
+                      <p className="text-xs font-bold text-blue-dark/40 uppercase mb-1">Shipping Address</p>
+                      <p className="text-sm text-black font-medium leading-relaxed">
+                        {selectedOrder.customer?.address}<br />
+                        {selectedOrder.customer?.city}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h4 className="text-xs font-black text-blue-dark/40 uppercase tracking-widest">Order Status</h4>
+                  <div className="space-y-4 bg-blue-light/30 p-4 rounded-2xl border-2 border-blue/20">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-bold text-blue-dark/60">Current Status</span>
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase border ${
+                        selectedOrder.status === 'delivered' ? 'bg-green-100 text-green-800 border-green-200' :
+                        selectedOrder.status === 'cancelled' ? 'bg-red-100 text-red-800 border-red-200' :
+                        'bg-yellow-100 text-yellow-800 border-yellow-200'
+                      }`}>
+                        {selectedOrder.status}
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-blue-dark/40 uppercase">Update Status</label>
+                      <select 
+                        value={selectedOrder.status} 
+                        onChange={(e) => handleOrderStatus(selectedOrder.id, e.target.value)}
+                        className="w-full p-3 border-2 border-blue bg-white text-black rounded-xl focus:border-black outline-none font-bold text-sm"
+                      >
+                        <option value="pending">Pending</option>
+                        <option value="processing">Processing</option>
+                        <option value="shipped">Shipped</option>
+                        <option value="delivered">Delivered</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                    </div>
+                    <div className="pt-2 text-[10px] font-medium text-blue-dark/40">
+                      Placed on: {new Date(selectedOrder.timestamp).toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Order Items */}
+              <div className="space-y-4">
+                <h4 className="text-xs font-black text-blue-dark/40 uppercase tracking-widest">Order Items</h4>
+                <div className="border-2 border-blue rounded-2xl overflow-hidden">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-blue-light/50 border-b-2 border-blue">
+                      <tr className="text-[10px] font-black text-blue-dark/60 uppercase">
+                        <th className="p-3">Product</th>
+                        <th className="p-3">Size</th>
+                        <th className="p-3 text-center">Qty</th>
+                        <th className="p-3 text-right">Price</th>
+                        <th className="p-3 text-right">Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-blue/20">
+                      {selectedOrder.products?.map((item: any, idx: number) => (
+                        <tr key={idx} className="text-sm">
+                          <td className="p-3 font-bold text-black">{item.name}</td>
+                          <td className="p-3">
+                            <span className="px-2 py-0.5 bg-blue-light border border-blue rounded-md text-[10px] font-bold text-black">
+                              {item.selectedSize || item.size || '50ml'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-center font-black text-blue-dark">x{item.quantity}</td>
+                          <td className="p-3 text-right font-mono text-blue-dark/70">PKR {item.price?.toLocaleString()}</td>
+                          <td className="p-3 text-right font-mono font-bold text-black">PKR {(item.price * item.quantity).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-blue-light/20 border-t-2 border-blue">
+                      <tr>
+                        <td colSpan={3} className="p-4 text-right font-black text-blue-dark uppercase tracking-wider">Total Amount</td>
+                        <td className="p-4 text-right font-mono font-black text-black text-xl">PKR {selectedOrder.total?.toLocaleString()}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 bg-blue-light/30 border-t-2 border-blue flex justify-end space-x-4">
+              <button 
+                onClick={() => setSelectedOrder(null)}
+                className="px-8 py-3 bg-black text-white font-bold rounded-xl hover:bg-blue transition-all shadow-lg"
+              >
+                Close Details
               </button>
             </div>
           </div>
@@ -744,6 +900,25 @@ export const AdminDashboard = () => {
                 </div>
               </div>
 
+              <div className="space-y-4 pt-4 border-t-2 border-blue">
+                <h3 className="text-sm font-black text-blue-dark/40 uppercase tracking-widest">Size Pricing (Custom Prices)</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-blue-dark/70">30ml Price (PKR)</label>
+                    <input type="number" className="w-full p-3 border-2 border-blue bg-white text-black rounded-xl focus:border-black outline-none transition-all font-medium" value={newProduct.sizePrices?.['30ml'] || ''} onChange={e => setNewProduct({...newProduct, sizePrices: { ...newProduct.sizePrices, '30ml': Number(e.target.value) }})} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-blue-dark/70">50ml Price (PKR)</label>
+                    <input type="number" className="w-full p-3 border-2 border-blue bg-white text-black rounded-xl focus:border-black outline-none transition-all font-medium" value={newProduct.sizePrices?.['50ml'] || ''} onChange={e => setNewProduct({...newProduct, sizePrices: { ...newProduct.sizePrices, '50ml': Number(e.target.value) }})} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-blue-dark/70">100ml Price (PKR)</label>
+                    <input type="number" className="w-full p-3 border-2 border-blue bg-white text-black rounded-xl focus:border-black outline-none transition-all font-medium" value={newProduct.sizePrices?.['100ml'] || ''} onChange={e => setNewProduct({...newProduct, sizePrices: { ...newProduct.sizePrices, '100ml': Number(e.target.value) }})} />
+                  </div>
+                </div>
+                <p className="text-[10px] text-blue-dark/60 font-medium italic">* If left as 0, the main product price will be used for that size.</p>
+              </div>
+
               <div className="space-y-2">
                 <label className="text-sm font-bold text-blue-dark/70">Description</label>
                 <textarea rows={4} className="w-full p-3 border-2 border-blue bg-white text-black rounded-xl focus:border-black outline-none transition-all font-medium" value={newProduct.description || ''} onChange={e => setNewProduct({...newProduct, description: e.target.value})} />
@@ -991,7 +1166,15 @@ export const AdminDashboard = () => {
                     ) : (
                       orders.map(order => (
                         <tr key={order.id} className="hover:bg-blue-light transition-colors">
-                          <td className="p-4 font-mono text-sm font-bold text-black">{order.id.slice(0, 8)}...</td>
+                          <td className="p-4 font-mono text-sm font-bold text-black">
+                            <button 
+                              onClick={() => setSelectedOrder(order)}
+                              className="text-blue-dark hover:underline flex items-center"
+                            >
+                              {order.id.slice(0, 8)}...
+                              <LayoutTemplate size={14} className="ml-1" />
+                            </button>
+                          </td>
                           <td className="p-4">
                             <div className="font-bold text-black">{order.customer?.name}</div>
                             <div className="text-xs text-blue-dark/60 font-medium">{order.customer?.email}</div>
@@ -1001,9 +1184,12 @@ export const AdminDashboard = () => {
                           <td className="p-4">
                             <div className="text-xs text-blue-dark/60 font-medium space-y-1">
                               {order.products?.map((p: any, idx: number) => (
-                                <div key={idx} className="flex justify-between gap-4 border-b border-blue/20 pb-1">
-                                  <span className="truncate max-w-[120px] font-bold text-black">{p.name}</span>
-                                  <span className="font-black text-blue-dark">x{p.quantity}</span>
+                                <div key={idx} className="flex flex-col border-b border-blue/20 pb-1">
+                                  <div className="flex justify-between gap-4">
+                                    <span className="truncate max-w-[120px] font-bold text-black">{p.name}</span>
+                                    <span className="font-black text-blue-dark">x{p.quantity}</span>
+                                  </div>
+                                  <span className="text-[10px] font-bold text-blue-dark/40 uppercase">{p.selectedSize || p.size || '50ml'}</span>
                                 </div>
                               ))}
                             </div>

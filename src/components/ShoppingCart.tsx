@@ -76,18 +76,19 @@ export const ShoppingCart: React.FC<ShoppingCartProps> = ({ isOpen, onClose }) =
                     </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="text-sm font-bold text-black truncate">{item.name}</h3>
+                      <p className="text-[10px] font-black text-blue-dark/40 uppercase mb-1">{item.selectedSize || '50ml'}</p>
                       <p className="text-black font-bold text-sm">PKR {Number(item.price).toLocaleString()}</p>
                       <div className="mt-2 flex items-center space-x-3">
                         <div className="flex items-center border-2 border-blue rounded-full px-2 py-1 bg-white">
-                          <button onClick={() => updateQuantity(item.id, item.quantity - 1)} className="p-1 text-blue-dark/40 hover:text-black">
+                          <button onClick={() => updateQuantity(item.id, item.selectedSize || '50ml', item.quantity - 1)} className="p-1 text-blue-dark/40 hover:text-black">
                             <Minus size={14} />
                           </button>
                           <span className="w-6 text-center text-xs font-bold text-black">{item.quantity}</span>
-                          <button onClick={() => updateQuantity(item.id, item.quantity + 1)} className="p-1 text-blue-dark/40 hover:text-black">
+                          <button onClick={() => updateQuantity(item.id, item.selectedSize || '50ml', item.quantity + 1)} className="p-1 text-blue-dark/40 hover:text-black">
                             <Plus size={14} />
                           </button>
                         </div>
-                        <button onClick={() => removeFromCart(item.id)} className="text-blue-dark/40 hover:text-red-500 transition-colors">
+                        <button onClick={() => removeFromCart(item.id, item.selectedSize || '50ml')} className="text-blue-dark/40 hover:text-red-500 transition-colors">
                           <Trash2 size={16} />
                         </button>
                       </div>

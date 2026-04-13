@@ -32,12 +32,16 @@ service cloud.firestore {
     }
 
     function isValidOrder(data) {
-      return hasOnlyAllowedFields(['customer', 'products', 'total', 'status', 'timestamp']) &&
+      return hasOnlyAllowedFields(['customer', 'products', 'total', 'status', 'timestamp', 'createdAt']) &&
              data.customer is map &&
-             data.products is list && data.products.size() < 50 &&
-             data.total is number && data.total >= 0 &&
-             data.status is string && data.status.size() < 50 &&
-             data.timestamp is string && data.timestamp.size() < 50;
+             data.customer.name is string && data.customer.name.size() > 0 &&
+             data.customer.phone is string && data.customer.phone.size() >= 10 &&
+             data.customer.address is string && data.customer.address.size() > 5 &&
+             data.customer.city is string && data.customer.city.size() > 0 &&
+             data.products is list && data.products.size() > 0 && data.products.size() < 20 &&
+             data.total is number && data.total > 0 &&
+             data.status == 'pending' &&
+             data.timestamp == request.time;
     }
 
     function isValidReview(data) {
@@ -62,26 +66,33 @@ service cloud.firestore {
              data.heroProductId is string;
     }
 
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.email == 'admin@perfumeenclave.com';
+    }
+
     match /products/{productId} {
       allow read: if true;
-      // Fallback: allow write if auth is restricted, but prefer isAuthenticated()
-      allow write: if true; 
+      allow write: if isAdmin();
     }
 
     match /orders/{orderId} {
       allow create: if isValidOrder(request.resource.data);
-      allow read, update, delete: if true;
+      allow read, update, delete: if isAdmin();
     }
 
     match /reviews/{reviewId} {
       allow read: if true;
       allow create: if isValidReview(request.resource.data);
-      allow update, delete: if true;
+      allow update, delete: if isAdmin();
     }
 
     match /settings/{settingId} {
       allow read: if true;
-      allow write: if true;
+      allow write: if isAdmin();
+    }
+
+    match /test/{docId} {
+      allow read: if true;
     }
   }
 }

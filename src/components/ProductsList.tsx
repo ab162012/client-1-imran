@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { db } from '../firebase';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { Product, Review } from '../types';
 import { ProductCard } from './Common';
+import { ProductService } from '../services/ProductService';
 
 interface ProductsListProps {
   featuredOnly?: boolean;
@@ -17,35 +18,30 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
   const categories = ['All', 'Men', 'Unisex'];
 
   useEffect(() => {
-    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
-      let productsData = snapshot.docs.map(doc => {
-        const data = doc.data() as Product;
-        const name = data.name?.toLowerCase() || '';
+    const fetchProducts = async () => {
+      try {
+        setLoading(true);
+        const productsData = await ProductService.getProducts();
         
-        // Custom categorization logic
-        let category = 'Men';
-        if (name.includes('baqarat') || name.includes('aruj')) {
-          category = 'Unisex';
-        }
-        
-        return {
-          id: doc.id,
-          ...data,
-          category // Override category
-        };
-      }) as Product[];
-      
-      // No filters applied, show all products
-      
-      if (featuredOnly) {
-        productsData = productsData.filter(p => p.featured);
+        // Apply custom categorization and filtering
+        const processedProducts = productsData.map(data => {
+          const name = data.name?.toLowerCase() || '';
+          let category = 'Men';
+          if (name.includes('baqarat') || name.includes('aruj')) {
+            category = 'Unisex';
+          }
+          return { ...data, category };
+        });
+
+        setProducts(featuredOnly ? processedProducts.filter(p => p.featured) : processedProducts);
+      } catch (error) {
+        console.error("Error loading products:", error);
+      } finally {
+        setLoading(false);
       }
-      setProducts(productsData);
-      setLoading(false);
-    }, (error) => {
-      console.error('Error fetching products:', error);
-      setLoading(false);
-    });
+    };
+
+    fetchProducts();
 
     const unsubReviews = onSnapshot(collection(db, 'reviews'), (snapshot) => {
       const reviewsData = snapshot.docs.map(doc => ({
@@ -54,11 +50,10 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
       })) as Review[];
       setReviews(reviewsData);
     }, (error) => {
-      console.error('Error fetching reviews:', error);
+      handleFirestoreError(error, OperationType.LIST, 'reviews');
     });
 
     return () => {
-      unsubProducts();
       unsubReviews();
     };
   }, [featuredOnly]);

@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { db } from '../firebase';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 import { doc, onSnapshot, collection, query, where, addDoc, updateDoc, increment, limit, getDocs } from 'firebase/firestore';
 import { Product, Review } from '../types';
 import { useCart } from '../hooks/useCart';
 import { Minus, Plus, ShoppingBag, ArrowLeft, ShieldCheck, Zap, Eye, Star, TrendingUp, Heart, Clock, MapPin, CheckCircle2 } from 'lucide-react';
 import { ProductCard } from '../components/Common';
 import { DeliveryTimeline } from '../components/DeliveryTimeline';
+import { ProductService } from '../services/ProductService';
 
 export const ProductDetailPage = () => {
   const { id } = useParams();
@@ -15,6 +16,7 @@ export const ProductDetailPage = () => {
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
+  const [selectedSize, setSelectedSize] = useState<'30ml' | '50ml' | '100ml'>('50ml');
   const [viewers, setViewers] = useState(12);
   const [boughtCount, setBoughtCount] = useState(48);
   const [recentPurchase, setRecentPurchase] = useState<{ name: string, city: string } | null>(null);
@@ -37,40 +39,40 @@ export const ProductDetailPage = () => {
 
     if (!id) return;
 
-    // Real-time Product Listener
-    const unsubProduct = onSnapshot(doc(db, 'products', id), (docSnap) => {
-      if (docSnap.exists()) {
-        const prodData = { id: docSnap.id, ...docSnap.data() } as Product;
-        setProduct(prodData);
-        setMainImage(prev => prev || prodData.image); // Set main image if not already set
-      } else {
-        setProduct(null);
+    // Optimized Product Fetching using Cache
+    const fetchProductData = async () => {
+      try {
+        setLoading(true);
+        const products = await ProductService.getProducts();
+        const foundProduct = products.find(p => p.id === id);
+        
+        if (foundProduct) {
+          setProduct(foundProduct);
+          setMainImage(foundProduct.image);
+          
+          // Set Bundles from cache
+          const featured = products.filter(p => p.featured && p.id !== id);
+          setBundles(featured.slice(0, 2));
+        } else {
+          setProduct(null);
+        }
+      } catch (error) {
+        console.error("Error loading product details:", error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
-    }, (error) => {
-      console.error('Error fetching product:', error);
-      setLoading(false);
-    });
+    };
 
-    // Real-time Reviews Listener
+    fetchProductData();
+
+    // Real-time Reviews Listener (Keep this real-time as it's dynamic)
     const q = query(collection(db, 'reviews'), where('productId', '==', id), where('status', '==', 'approved'));
     const unsubReviews = onSnapshot(q, (snapshot) => {
       const reviewsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Review[];
       setReviews(reviewsData);
     }, (error) => {
-      console.error('Error fetching reviews:', error);
+      handleFirestoreError(error, OperationType.LIST, 'reviews');
     });
-
-    // Fetch Bundles (Other products)
-    const fetchBundles = async () => {
-      const qBundles = query(collection(db, 'products'), where('featured', '==', true), limit(3));
-      const snap = await getDocs(qBundles);
-      const bundleData = snap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as Product))
-        .filter(p => p.id !== id);
-      setBundles(bundleData.slice(0, 2));
-    };
-    fetchBundles();
 
     // Simulate Recent Purchase Notification
     const cities = ['Karachi', 'Lahore', 'Islamabad', 'Faisalabad', 'Rawalpindi', 'Multan', 'Gujranwala', 'Peshawar'];
@@ -100,7 +102,6 @@ export const ProductDetailPage = () => {
     incrementViews();
 
     return () => {
-      unsubProduct();
       unsubReviews();
       clearInterval(notificationInterval);
     };
@@ -149,6 +150,8 @@ export const ProductDetailPage = () => {
 
   const savings = product.original_price ? product.original_price - product.price : 0;
   
+  const currentPrice = product.sizePrices?.[selectedSize] || product.price;
+  
   // Combine single image and images array for gallery
   const allImages = product.images?.length ? product.images : [product.image];
 
@@ -157,11 +160,11 @@ export const ProductDetailPage = () => {
       {/* Sticky Mobile Add to Cart Bar */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-lg border-t-2 border-blue p-4 z-50 flex items-center justify-between shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
         <div className="flex flex-col">
-          <span className="text-xs font-bold text-blue-dark/80 uppercase tracking-widest">Price</span>
-          <span className="text-xl font-black text-black">PKR {product.price.toLocaleString()}</span>
+          <span className="text-xs font-bold text-blue-dark/80 uppercase tracking-widest">Price ({selectedSize})</span>
+          <span className="text-xl font-black text-black">PKR {currentPrice.toLocaleString()}</span>
         </div>
         <button
-          onClick={() => addToCart(product, quantity)}
+          onClick={() => addToCart(product, quantity, selectedSize)}
           className="bg-black text-white px-8 py-3 rounded-full font-bold text-sm hover:bg-blue transition-all active:scale-95 flex items-center gap-2"
         >
           <ShoppingBag size={18} />
@@ -266,7 +269,7 @@ export const ProductDetailPage = () => {
 
               <div className="flex flex-col space-y-3">
                 <div className="flex items-end space-x-4">
-                  <span className="text-5xl md:text-7xl text-black font-black tracking-tighter">PKR {product.price.toLocaleString()}</span>
+                  <span className="text-5xl md:text-7xl text-black font-black tracking-tighter">PKR {currentPrice.toLocaleString()}</span>
                   {product.original_price && (
                     <span className="text-2xl md:text-3xl text-blue-dark/40 font-bold line-through mb-1">
                       PKR {product.original_price.toLocaleString()}
@@ -278,6 +281,29 @@ export const ProductDetailPage = () => {
                     🔥 Special Savings: PKR {savings.toLocaleString()}
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* SIZE SELECTION */}
+            <div className="space-y-4">
+              <label className="block text-xs font-black uppercase tracking-[0.3em] text-blue-dark/60">Select Size</label>
+              <div className="flex gap-4">
+                {(['30ml', '50ml', '100ml'] as const).map((size) => (
+                  <button
+                    key={size}
+                    onClick={() => setSelectedSize(size)}
+                    className={`flex-1 py-4 rounded-2xl font-bold border-2 transition-all ${
+                      selectedSize === size
+                        ? 'bg-black text-white border-black shadow-xl scale-105'
+                        : 'bg-white text-black border-blue hover:border-black'
+                    }`}
+                  >
+                    <div className="text-sm">{size}</div>
+                    <div className="text-[10px] opacity-60">
+                      PKR {(product.sizePrices?.[size] || product.price).toLocaleString()}
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -302,7 +328,7 @@ export const ProductDetailPage = () => {
 
                 <button
                   onClick={() => {
-                    addToCart(product, quantity);
+                    addToCart(product, quantity, selectedSize);
                   }}
                   className="w-full sm:w-auto flex-1 flex items-center justify-center px-10 py-5 md:py-6 border-2 border-transparent bg-black text-white font-black text-lg md:text-xl rounded-full hover:bg-blue hover:text-white hover:border-black transition-all hover:scale-[1.02] active:scale-95 shadow-2xl"
                 >
@@ -312,7 +338,7 @@ export const ProductDetailPage = () => {
               
               <button
                 onClick={() => {
-                  addToCart(product, quantity);
+                  addToCart(product, quantity, selectedSize);
                   navigate('/checkout');
                 }}
                 className="w-full flex items-center justify-center px-10 py-5 md:py-6 bg-blue-dark text-white font-black text-xl md:text-2xl rounded-full hover:bg-blue hover:text-white border-2 border-transparent hover:border-black transition-all hover:scale-[1.02] active:scale-95 shadow-2xl"

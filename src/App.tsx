@@ -24,27 +24,12 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const token = localStorage.getItem('adminToken');
-    if (!token) {
-      setIsAuthenticated(false);
-      return;
-    }
-
-    // If we have a token, ensure we are also signed into Firebase
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      // We only allow users who are authenticated and NOT anonymous (admins)
+      if (user && !user.isAnonymous) {
         setIsAuthenticated(true);
       } else {
-        // Try to sign in anonymously if we have a token but no Firebase user
-        try {
-          await signInAnonymously(auth);
-          // onAuthStateChanged will fire again with the user
-        } catch (error) {
-          console.error("Failed to sign in anonymously:", error);
-          // Even if Firebase auth fails, we might allow access if the token is valid
-          // but Firestore rules might block them. For now, let's be strict.
-          setIsAuthenticated(false);
-        }
+        setIsAuthenticated(false);
       }
     });
 

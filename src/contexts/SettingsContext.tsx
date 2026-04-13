@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { db } from '../firebase';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { SiteSettings } from '../types';
 
@@ -39,7 +39,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
       setLoading(false);
     }, (error) => {
-      console.error("Error fetching settings:", error);
+      handleFirestoreError(error, OperationType.GET, 'settings/general');
       setLoading(false);
     });
 

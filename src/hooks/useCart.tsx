@@ -5,9 +5,9 @@ import { doc, getDoc } from 'firebase/firestore';
 
 interface CartContextType {
   cart: CartItem[];
-  addToCart: (product: Product, quantity: number) => void;
-  removeFromCart: (productId: string) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
+  addToCart: (product: Product, quantity: number, selectedSize: '30ml' | '50ml' | '100ml') => void;
+  removeFromCart: (productId: string, selectedSize: string) => void;
+  updateQuantity: (productId: string, selectedSize: string, quantity: number) => void;
   clearCart: () => void;
   totalItems: number;
   totalPrice: number;
@@ -83,35 +83,40 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     syncCart();
   }, []); // Run once on mount to refresh stale data from localStorage
 
-  const addToCart = (product: Product, quantity: number) => {
+  const addToCart = (product: Product, quantity: number, selectedSize: '30ml' | '50ml' | '100ml') => {
     setCart(prev => {
-      const existing = prev.find(item => item.id === product.id);
+      const existing = prev.find(item => item.id === product.id && item.selectedSize === selectedSize);
+      const price = product.sizePrices?.[selectedSize] || product.price;
+      
       if (existing) {
         return prev.map(item =>
-          item.id === product.id ? { ...item, quantity: item.quantity + quantity } : item
+          (item.id === product.id && item.selectedSize === selectedSize) 
+            ? { ...item, quantity: item.quantity + quantity, price: Number(price) } 
+            : item
         );
       }
       return [...prev, { 
         ...product, 
-        price: Number(product.price), 
+        price: Number(price), 
         original_price: product.original_price ? Number(product.original_price) : undefined,
         image: product.image || (product.images && product.images.length > 0 ? product.images[0] : ''),
-        quantity 
+        quantity,
+        selectedSize
       }];
     });
   };
 
-  const removeFromCart = (productId: string) => {
-    setCart(prev => prev.filter(item => item.id !== productId));
+  const removeFromCart = (productId: string, selectedSize: string) => {
+    setCart(prev => prev.filter(item => !(item.id === productId && item.selectedSize === selectedSize)));
   };
 
-  const updateQuantity = (productId: string, quantity: number) => {
+  const updateQuantity = (productId: string, selectedSize: string, quantity: number) => {
     if (quantity <= 0) {
-      removeFromCart(productId);
+      removeFromCart(productId, selectedSize);
       return;
     }
     setCart(prev =>
-      prev.map(item => (item.id === productId ? { ...item, quantity } : item))
+      prev.map(item => (item.id === productId && item.selectedSize === selectedSize ? { ...item, quantity } : item))
     );
   };
 

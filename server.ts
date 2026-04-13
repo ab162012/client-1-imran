@@ -15,39 +15,29 @@ async function startServer() {
 
   app.use(express.json());
 
-  // Admin Key Validation API
-  app.post("/api/admin/login", (req, res) => {
-    try {
-      const { key } = req.body;
-      const ADMIN_KEY = process.env.ADMIN_KEY || "Usman101";
-
-      console.log(`[ADMIN LOGIN] Attempt with key: ${key ? "****" : "empty"}`);
-
-      if (key === ADMIN_KEY) {
-        console.log("[ADMIN LOGIN] Success");
-        res.json({ success: true, token: "demo-admin-token" });
-      } else {
-        console.log("[ADMIN LOGIN] Failed: Invalid Key");
-        res.status(401).json({ success: false, message: "Invalid Admin Key" });
-      }
-    } catch (error) {
-      console.error("[ADMIN LOGIN] Error:", error);
-      res.status(500).json({ success: false, message: "Internal Server Error" });
-    }
-  });
-
   // Order Notification API
   app.post("/api/order-notification", (req, res) => {
-    const { orderId, customerEmail, total } = req.body;
+    const { orderId, customer, products, total, timestamp } = req.body;
     const ADMIN_EMAIL = "infoperfumeenclave@gmail.com";
     
-    console.log(`[ORDER ALERT] New order ${orderId} from ${customerEmail}. Total: PKR ${total}`);
-    console.log(`[EMAIL SERVICE] Sending detailed alert to: ${ADMIN_EMAIL}`);
+    console.log('--- NEW ORDER NOTIFICATION ---');
+    console.log(`Recipient: ${ADMIN_EMAIL}`);
+    console.log(`Order ID: ${orderId}`);
+    console.log(`Customer: ${customer?.name} (${customer?.email})`);
+    console.log(`Phone: ${customer?.phone}`);
+    console.log(`Address: ${customer?.address}, ${customer?.city}`);
+    console.log(`Total: PKR ${total?.toLocaleString()}`);
+    console.log(`Items:`);
+    products?.forEach((p: any) => {
+      console.log(` - ${p.name} x${p.quantity} (PKR ${p.price})`);
+    });
+    console.log(`Date: ${new Date(timestamp).toLocaleString()}`);
+    console.log('------------------------------');
     
     // In a real production environment, we would use a service like SendGrid or Resend here.
     // Example: await resend.emails.send({ from: 'orders@perfumeenclave.com', to: ADMIN_EMAIL, ... });
     
-    res.json({ success: true, message: "Alert sent to admin" });
+    res.json({ success: true, message: "Detailed alert sent to admin" });
   });
 
   // Vite middleware for development
