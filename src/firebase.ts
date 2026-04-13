@@ -1,13 +1,25 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, getDocFromServer, initializeFirestore } from 'firebase/firestore';
+import { 
+  getFirestore, 
+  doc, 
+  getDocFromServer, 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager 
+} from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-// Force long polling to improve connection reliability in restricted environments
+
+// Initialize Firestore with persistent local cache (v10+ SDK style)
 export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  }),
+  experimentalForceLongPolling: true, // Connection reliability
 }, firebaseConfig.firestoreDatabaseId);
+
 export const auth = getAuth(app);
 
 async function testConnection() {
