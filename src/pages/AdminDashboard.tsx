@@ -82,6 +82,9 @@ export const AdminDashboard = () => {
   }, [globalSettings]);
 
   useEffect(() => {
+    console.log("Current User:", auth.currentUser?.email);
+    console.log("Is Authenticated:", !!auth.currentUser);
+    
     const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
       const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Product[];
       setProducts(productsData);

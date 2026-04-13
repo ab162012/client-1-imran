@@ -7,9 +7,7 @@ import {
   orderBy, 
   QueryDocumentSnapshot,
   DocumentData,
-  getCountFromServer,
-  getDocsFromCache,
-  getDocsFromServer
+  getCountFromServer
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Product } from '../types';
@@ -68,7 +66,7 @@ export const ProductService = {
         console.log('[ProductService] Revalidating from server...');
         const productsRef = collection(db, 'products');
         const q = query(productsRef, orderBy('name'));
-        const snapshot = await getDocsFromServer(q);
+        const snapshot = await getDocs(q);
         
         const freshProducts = snapshot.docs.map(doc => ({
           id: doc.id,
@@ -126,16 +124,7 @@ export const ProductService = {
         q = query(productsRef, orderBy('name'), limit(pageSize));
       }
 
-      // Try cache first if persistence is enabled
-      let snapshot;
-      try {
-        snapshot = await getDocsFromCache(q);
-        if (snapshot.empty) {
-          snapshot = await getDocsFromServer(q);
-        }
-      } catch (e) {
-        snapshot = await getDocs(q);
-      }
+      const snapshot = await getDocs(q);
 
       const products = snapshot.docs.map(doc => ({
         id: doc.id,

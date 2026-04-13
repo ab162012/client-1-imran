@@ -3,22 +3,15 @@ import {
   getFirestore, 
   doc, 
   getDocFromServer, 
-  initializeFirestore, 
-  persistentLocalCache, 
-  persistentMultipleTabManager 
+  initializeFirestore
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with persistent local cache (v10+ SDK style)
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
-  }),
-  experimentalForceLongPolling: true, // Connection reliability
-}, firebaseConfig.firestoreDatabaseId);
+// Simplified Firestore initialization to debug permission issues
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 export const auth = getAuth(app);
 
