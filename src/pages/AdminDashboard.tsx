@@ -63,10 +63,16 @@ export const AdminDashboard = () => {
     heroProductId: ''
   });
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const showSuccess = (msg: string) => {
     setSuccessMessage(msg);
     setTimeout(() => setSuccessMessage(null), 3000);
+  };
+
+  const showError = (msg: string) => {
+    setErrorMessage(msg);
+    setTimeout(() => setErrorMessage(null), 5000);
   };
 
   useEffect(() => {
@@ -81,7 +87,8 @@ export const AdminDashboard = () => {
       setProducts(productsData);
       setLoading(false);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'products');
+      console.error("Products fetch error:", error);
+      showError(`Failed to load products: ${error.message}`);
       setLoading(false);
     });
 
@@ -89,14 +96,16 @@ export const AdminDashboard = () => {
       const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setOrders(ordersData);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'orders');
+      console.error("Orders fetch error:", error);
+      showError(`Failed to load orders: ${error.message}`);
     });
 
     const unsubReviews = onSnapshot(collection(db, 'reviews'), (snapshot) => {
       const reviewsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Review[];
       setReviews(reviewsData);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'reviews');
+      console.error("Reviews fetch error:", error);
+      showError(`Failed to load reviews: ${error.message}`);
     });
 
     return () => {
@@ -201,8 +210,9 @@ export const AdminDashboard = () => {
       await updateDoc(docRef, productData);
       showSuccess('Product updated successfully');
       setEditingId(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `products/${editingId}`);
+    } catch (error: any) {
+      console.error('Save error:', error);
+      showError(`Failed to update product: ${error.message}`);
     }
   };
 
@@ -211,8 +221,10 @@ export const AdminDashboard = () => {
       await deleteDoc(doc(db, 'products', id));
       showSuccess('Product deleted successfully');
       setDeleteConfirm(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `products/${id}`);
+    } catch (error: any) {
+      console.error('Delete product error:', error);
+      showError(`Failed to delete product: ${error.message}`);
+      setDeleteConfirm(null);
     }
   };
 
@@ -221,8 +233,10 @@ export const AdminDashboard = () => {
       await deleteDoc(doc(db, 'orders', id));
       showSuccess('Order deleted successfully');
       setDeleteConfirm(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `orders/${id}`);
+    } catch (error: any) {
+      console.error('Delete order error:', error);
+      showError(`Failed to delete order: ${error.message}`);
+      setDeleteConfirm(null);
     }
   };
 
@@ -231,8 +245,10 @@ export const AdminDashboard = () => {
       await deleteDoc(doc(db, 'reviews', id));
       showSuccess('Review deleted successfully');
       setDeleteConfirm(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `reviews/${id}`);
+    } catch (error: any) {
+      console.error('Delete review error:', error);
+      showError(`Failed to delete review: ${error.message}`);
+      setDeleteConfirm(null);
     }
   };
 
@@ -293,8 +309,9 @@ export const AdminDashboard = () => {
       setEditingProduct(null);
       setActiveTab('products');
       setIsSidebarOpen(false);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'products');
+    } catch (error: any) {
+      console.error('Add product error:', error);
+      showError(`Failed to save product: ${error.message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -336,8 +353,9 @@ export const AdminDashboard = () => {
   const handleOrderStatus = async (id: string, status: string) => {
     try {
       await updateDoc(doc(db, 'orders', id), { status });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `orders/${id}`);
+    } catch (error: any) {
+      console.error('Order status update error:', error);
+      showError(`Failed to update order status: ${error.message}`);
     }
   };
 
@@ -345,8 +363,9 @@ export const AdminDashboard = () => {
   const handleReviewStatus = async (id: string, status: 'approved' | 'rejected') => {
     try {
       await updateDoc(doc(db, 'reviews', id), { status });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `reviews/${id}`);
+    } catch (error: any) {
+      console.error('Review status update error:', error);
+      showError(`Failed to update review status: ${error.message}`);
     }
   };
 
@@ -368,8 +387,9 @@ export const AdminDashboard = () => {
       setNewReviewForm({ productId: '', customerName: '', rating: 5, comment: '', verified: true });
       setIsAddingReview(false);
       alert('Verified review added successfully!');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'reviews');
+    } catch (error: any) {
+      console.error('Add manual review error:', error);
+      showError(`Failed to add review: ${error.message}`);
     }
   };
 
@@ -381,8 +401,9 @@ export const AdminDashboard = () => {
       );
       await setDoc(doc(db, 'settings', 'general'), settingsData);
       showSuccess('Settings updated successfully');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'settings/site');
+    } catch (error: any) {
+      console.error('Save settings error:', error);
+      showError(`Failed to update settings: ${error.message}`);
     }
   };
 
@@ -581,6 +602,16 @@ export const AdminDashboard = () => {
           <div className="bg-white text-black px-6 py-4 rounded-2xl shadow-2xl flex items-center space-x-3 border-2 border-blue">
             <CheckCircle2 className="text-green-500" size={20} />
             <span className="font-bold">{successMessage}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Error Message Toast */}
+      {errorMessage && (
+        <div className="fixed bottom-8 right-8 z-50 animate-in fade-in slide-in-from-bottom-4">
+          <div className="bg-white text-red-600 px-6 py-4 rounded-2xl shadow-2xl flex items-center space-x-3 border-2 border-red-500">
+            <X className="text-red-500" size={20} />
+            <span className="font-bold">{errorMessage}</span>
           </div>
         </div>
       )}

@@ -115,7 +115,7 @@ export const AdminLogin = () => {
         <div className="mt-8 pt-6 border-t border-white/10 text-center">
           <p className="text-white/40 text-xs">
             Note: Ensure Email/Password authentication is enabled in your Firebase Console.
-            Default Admin: admin@perfumeenclave.com
+            Authorized Admins: admin@perfumeenclave.com, abdulbasit162012@gmail.com
           </p>
         </div>
       </div>
