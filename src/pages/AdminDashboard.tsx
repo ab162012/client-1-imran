@@ -11,17 +11,18 @@ import {
 import { useNavigate } from 'react-router-dom';
 
 export const AdminDashboard = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'add-product' | 'inventory' | 'orders' | 'reviews' | 'research' | 'logo' | 'banner' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'add-product' | 'inventory' | 'orders' | 'reviews' | 'research' | 'logo' | 'banner' | 'settings' | 'admins'>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [newReviewForm, setNewReviewForm] = useState({ productId: '', customerName: '', rating: 5, comment: '', verified: true });
   const [isAddingReview, setIsAddingReview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'product' | 'order' | 'review' } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'product' | 'order' | 'review' | 'user' } | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const { settings: globalSettings } = useSettings();
   const navigate = useNavigate();
@@ -111,10 +112,19 @@ export const AdminDashboard = () => {
       showError(`Failed to load reviews: ${error.message}`);
     });
 
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setUsers(usersData);
+    }, (error) => {
+      console.error("Users fetch error:", error);
+      // Don't show error for users if it fails (might not have permissions yet)
+    });
+
     return () => {
       unsubProducts();
       unsubOrders();
       unsubReviews();
+      unsubUsers();
     };
   }, []);
 
@@ -124,6 +134,29 @@ export const AdminDashboard = () => {
       navigate('/admin-login');
     } catch (error) {
       console.error('Logout error:', error);
+    }
+  };
+
+  // --- User Actions ---
+  const handleUpdateUserRole = async (userId: string, role: 'admin' | 'customer') => {
+    try {
+      await updateDoc(doc(db, 'users', userId), { role });
+      showSuccess(`User role updated to ${role}`);
+    } catch (error: any) {
+      console.error('Update user role error:', error);
+      showError(`Failed to update user role: ${error.message}`);
+    }
+  };
+
+  const handleDeleteUser = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'users', id));
+      showSuccess('User record deleted successfully');
+      setDeleteConfirm(null);
+    } catch (error: any) {
+      console.error('Delete user error:', error);
+      showError(`Failed to delete user: ${error.message}`);
+      setDeleteConfirm(null);
     }
   };
 
@@ -210,11 +243,12 @@ export const AdminDashboard = () => {
       );
 
       const docRef = doc(db, 'products', editingId);
+      console.log("Attempting to update product:", editingId, productData);
       await updateDoc(docRef, productData);
       showSuccess('Product updated successfully');
       setEditingId(null);
     } catch (error: any) {
-      console.error('Save error:', error);
+      console.error('Save error details:', error);
       showError(`Failed to update product: ${error.message}`);
     }
   };
@@ -280,10 +314,12 @@ export const AdminDashboard = () => {
       if (editingProduct) {
         // Update existing product
         const docRef = doc(db, 'products', editingProduct.id);
+        console.log("Attempting to update product (full edit):", editingProduct.id, productData);
         await updateDoc(docRef, productData);
         showSuccess('Product updated successfully');
       } else {
         // Add new product
+        console.log("Attempting to add new product:", productData);
         await addDoc(collection(db, 'products'), productData);
         showSuccess('Product added successfully');
       }
@@ -402,10 +438,11 @@ export const AdminDashboard = () => {
       const settingsData = Object.fromEntries(
         Object.entries(siteSettingsForm).filter(([_, v]) => v !== undefined)
       );
+      console.log("Attempting to save settings:", settingsData);
       await setDoc(doc(db, 'settings', 'general'), settingsData);
       showSuccess('Settings updated successfully');
     } catch (error: any) {
-      console.error('Save settings error:', error);
+      console.error('Save settings error details:', error);
       showError(`Failed to update settings: ${error.message}`);
     }
   };
@@ -425,6 +462,7 @@ export const AdminDashboard = () => {
     { id: 'inventory', icon: BarChart3, label: 'Inventory' },
     { id: 'orders', icon: ShoppingBag, label: 'Orders' },
     { id: 'reviews', icon: MessageSquare, label: 'Reviews' },
+    { id: 'admins', icon: LogOut, label: 'Admins' },
     { id: 'research', icon: TrendingUp, label: 'Product Research' },
     { id: 'settings', icon: Settings, label: 'Site Settings' },
     { id: 'logo', icon: ImageIcon, label: 'Logo Manager' },
@@ -454,6 +492,7 @@ export const AdminDashboard = () => {
                   if (deleteConfirm.type === 'product') handleDeleteProduct(deleteConfirm.id);
                   else if (deleteConfirm.type === 'order') handleDeleteOrder(deleteConfirm.id);
                   else if (deleteConfirm.type === 'review') handleDeleteReview(deleteConfirm.id);
+                  else if (deleteConfirm.type === 'user') handleDeleteUser(deleteConfirm.id);
                 }}
                 className="w-full py-4 bg-red-500 text-white font-bold rounded-2xl hover:bg-red-600 transition-colors"
               >
@@ -1406,6 +1445,107 @@ export const AdminDashboard = () => {
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ADMINS TAB */}
+        {activeTab === 'admins' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h1 className="text-2xl font-bold text-black">Manage Administrators</h1>
+              <div className="text-sm font-medium text-blue-dark/60">
+                Total Users: {users.length}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl border-2 border-blue shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-blue-light/50 border-b-2 border-blue">
+                    <tr className="text-xs font-black text-blue-dark/60 uppercase tracking-wider">
+                      <th className="p-4">User</th>
+                      <th className="p-4">Role</th>
+                      <th className="p-4">Joined</th>
+                      <th className="p-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-blue/20">
+                    {users.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="p-8 text-center text-blue-dark/40 font-bold">
+                          No users found in the database.
+                        </td>
+                      </tr>
+                    ) : (
+                      users.map((user) => (
+                        <tr key={user.id} className="hover:bg-blue-light/30 transition-colors">
+                          <td className="p-4">
+                            <div className="flex items-center space-x-3">
+                              <div className="w-10 h-10 bg-blue-light border-2 border-blue rounded-full flex items-center justify-center text-black font-bold text-xs">
+                                {user.displayName?.charAt(0) || user.email?.charAt(0) || '?'}
+                              </div>
+                              <div>
+                                <p className="text-sm font-bold text-black">{user.displayName || 'Anonymous'}</p>
+                                <p className="text-xs font-medium text-blue-dark/60">{user.email}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase border ${
+                              user.role === 'admin' 
+                                ? 'bg-purple-100 text-purple-800 border-purple-200' 
+                                : 'bg-blue-100 text-blue-800 border-blue-200'
+                            }`}>
+                              {user.role}
+                            </span>
+                          </td>
+                          <td className="p-4 text-xs font-medium text-blue-dark/60">
+                            {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}
+                          </td>
+                          <td className="p-4 text-right">
+                            <div className="flex justify-end space-x-2">
+                              {user.role === 'admin' ? (
+                                <button
+                                  onClick={() => handleUpdateUserRole(user.id, 'customer')}
+                                  className="p-2 text-blue-dark hover:bg-blue-light rounded-lg transition-colors border-2 border-transparent hover:border-blue"
+                                  title="Demote to Customer"
+                                >
+                                  <ShoppingBag size={18} />
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleUpdateUserRole(user.id, 'admin')}
+                                  className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors border-2 border-transparent hover:border-purple-200"
+                                  title="Promote to Admin"
+                                >
+                                  <PlusCircle size={18} />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => setDeleteConfirm({ id: user.id, type: 'user' })}
+                                className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors border-2 border-transparent hover:border-red-200"
+                                title="Delete User Record"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="bg-blue-light/30 p-6 rounded-3xl border-2 border-blue border-dashed">
+              <h3 className="text-sm font-bold text-black mb-2">How to add new admins:</h3>
+              <ul className="text-xs text-blue-dark/70 space-y-2 list-disc pl-4">
+                <li>Admins must first create an account or log in.</li>
+                <li>Once they appear in this list, you can promote them using the <PlusCircle size={12} className="inline" /> button.</li>
+                <li>The master account <code className="bg-white px-1 rounded border border-blue">admin@perfumeenclave.com</code> always has access.</li>
+              </ul>
             </div>
           </div>
         )}

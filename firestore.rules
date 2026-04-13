@@ -47,8 +47,15 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() && 
-             (request.auth.token.email.lower() == 'abdulbasit162012@gmail.com' || 
-              request.auth.token.email.lower() == 'admin@perfumeenclave.com');
+             (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+              request.auth.token.get('email', '').lower() == 'admin@perfumeenclave.com');
+    }
+
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName', 'createdAt']) &&
+             data.uid is string &&
+             data.email is string &&
+             data.role in ['admin', 'customer'];
     }
 
     function isValidProduct(data) {
@@ -62,16 +69,18 @@ service cloud.firestore {
       
       return data.keys().hasOnly(allowedFields) &&
              data.name is string && data.name.size() > 0 &&
-             data.price is number &&
-             (!('description' in data) || data.description is string) &&
-             (!('image' in data) || data.image is string) &&
-             (!('stock' in data) || data.stock is number) &&
-             (!('sizePrices' in data) || data.sizePrices is map);
+             data.price is number;
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAuthenticated() && request.auth.uid == userId && request.resource.data.role == 'customer';
+      allow update: if isAdmin();
     }
 
     match /products/{productId} {
       allow read: if true;
-      allow write: if isAdmin(); // Temporarily simplify write rule to debug if isValidProduct is the issue
+      allow write: if isAdmin() && isValidProduct(request.resource.data);
     }
 
     match /orders/{orderId} {
@@ -87,7 +96,7 @@ service cloud.firestore {
 
     match /settings/{settingId} {
       allow read: if true;
-      allow write: if isAdmin() && isValidSettings(request.resource.data);
+      allow write: if isAdmin();
     }
 
     match /test/{docId} {

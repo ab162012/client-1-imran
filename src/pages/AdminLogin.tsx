@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth } from '../firebase';
+import { auth, db } from '../firebase';
 import { signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { Lock, Mail, Key, Loader2 } from 'lucide-react';
 
 export const AdminLogin = () => {
@@ -26,7 +27,23 @@ export const AdminLogin = () => {
     setError('');
     
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      
+      // Sync user to Firestore users collection
+      const userRef = doc(db, 'users', user.uid);
+      const userSnap = await getDoc(userRef);
+      
+      if (!userSnap.exists()) {
+        await setDoc(userRef, {
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName || user.email?.split('@')[0],
+          role: 'customer', // Default role, can be promoted by another admin
+          createdAt: Date.now()
+        });
+      }
+      
       // Success will be handled by onAuthStateChanged
     } catch (err: any) {
       console.error('Login error:', err);
@@ -115,7 +132,7 @@ export const AdminLogin = () => {
         <div className="mt-8 pt-6 border-t border-white/10 text-center">
           <p className="text-white/40 text-xs">
             Note: Ensure Email/Password authentication is enabled in your Firebase Console.
-            Authorized Admins: admin@perfumeenclave.com, abdulbasit162012@gmail.com
+            Authorized Admins: admin@perfumeenclave.com or any account with the 'admin' role.
           </p>
         </div>
       </div>
