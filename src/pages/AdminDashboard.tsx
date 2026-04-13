@@ -83,6 +83,12 @@ export const AdminDashboard = () => {
   }, [globalSettings]);
 
   useEffect(() => {
+    const unsubAuth = auth.onAuthStateChanged((user) => {
+      if (!user) {
+        navigate('/admin-login');
+      }
+    });
+
     console.log("Current User:", auth.currentUser?.email);
     console.log("Is Authenticated:", !!auth.currentUser);
     
@@ -121,6 +127,7 @@ export const AdminDashboard = () => {
     });
 
     return () => {
+      unsubAuth();
       unsubProducts();
       unsubOrders();
       unsubReviews();
@@ -249,6 +256,7 @@ export const AdminDashboard = () => {
       setEditingId(null);
     } catch (error: any) {
       console.error('Save error details:', error);
+      handleFirestoreError(error, OperationType.UPDATE, 'products');
       showError(`Failed to update product: ${error.message}`);
     }
   };
@@ -310,6 +318,9 @@ export const AdminDashboard = () => {
       }).filter(([_, v]) => v !== undefined)
     );
 
+    console.log("Current User for Add Product:", auth.currentUser?.email);
+    console.log("Auth State:", !!auth.currentUser);
+
     try {
       if (editingProduct) {
         // Update existing product
@@ -319,7 +330,7 @@ export const AdminDashboard = () => {
         showSuccess('Product updated successfully');
       } else {
         // Add new product
-        console.log("Attempting to add new product:", productData);
+        console.log("Attempting to add new product to collection 'products':", productData);
         await addDoc(collection(db, 'products'), productData);
         showSuccess('Product added successfully');
       }
@@ -350,6 +361,7 @@ export const AdminDashboard = () => {
       setIsSidebarOpen(false);
     } catch (error: any) {
       console.error('Add product error:', error);
+      handleFirestoreError(error, editingProduct ? OperationType.UPDATE : OperationType.CREATE, 'products');
       showError(`Failed to save product: ${error.message}`);
     } finally {
       setIsSubmitting(false);

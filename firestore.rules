@@ -46,36 +46,22 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuthenticated() && 
-             (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-              request.auth.token.get('email', '').lower() == 'admin@perfumeenclave.com');
-    }
-
-    function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName', 'createdAt']) &&
-             data.uid is string &&
-             data.email is string &&
-             data.role in ['admin', 'customer'];
+      return request.auth != null && 
+             'email' in request.auth.token &&
+             (request.auth.token.email.lower() == 'admin@perfumeenclave.com' ||
+              request.auth.token.email.lower() == 'abdulbasit162012@gmail.com' ||
+              (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+               get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
 
     function isValidProduct(data) {
-      // List all possible fields to ensure strict schema but allow flexibility
-      let allowedFields = [
-        'name', 'price', 'original_price', 'description', 'image', 'images', 
-        'notes', 'usage', 'stock', 'totalStock', 'soldQuantity', 
-        'lowStockThreshold', 'views', 'stockStatus', 'featured', 
-        'createdAt', 'discount', 'sizePrices', 'category', 'badge'
-      ];
-      
-      return data.keys().hasOnly(allowedFields) &&
-             data.name is string && data.name.size() > 0 &&
-             data.price is number;
+      return data.name is string && data.name.size() > 0 && data.price is number;
     }
 
     match /users/{userId} {
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
-      allow create: if isAuthenticated() && request.auth.uid == userId && request.resource.data.role == 'customer';
-      allow update: if isAdmin();
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update, delete: if isAdmin();
     }
 
     match /products/{productId} {
@@ -85,7 +71,8 @@ service cloud.firestore {
 
     match /orders/{orderId} {
       allow create: if isValidOrder(request.resource.data);
-      allow read, update, delete: if isAdmin();
+      allow read: if isAuthenticated();
+      allow update, delete: if isAdmin();
     }
 
     match /reviews/{reviewId} {
