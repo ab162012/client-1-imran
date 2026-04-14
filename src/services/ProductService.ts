@@ -1,28 +1,38 @@
-import { supabase } from '../supabase';
+import { 
+  collection, 
+  query, 
+  getDocs, 
+  limit, 
+  startAfter, 
+  orderBy, 
+  QueryDocumentSnapshot,
+  DocumentData,
+  getCountFromServer,
+  getDocsFromCache,
+  getDocsFromServer
+} from 'firebase/firestore';
+import { db } from '../firebase';
 import { Product } from '../types';
 
-/**
- * Helper to determine stock status based on numeric stock count
- */
-const getDerivedStockStatus = (stock?: number): 'In Stock' | 'Limited' | 'Out of Stock' => {
-  if (stock === undefined || stock === null) return 'In Stock';
-  if (stock <= 0) return 'Out of Stock';
-  if (stock <= 5) return 'Limited';
-  return 'In Stock';
-};
+// --- CACHING CONFIG ---
+const CACHE_KEY = 'perfume_enclave_products_cache';
+const CACHE_EXPIRATION_MS = 10 * 60 * 1000; // 10 minutes
+
+interface CachedData {
+  products: Product[];
+  timestamp: number;
+}
 
 export const ProductService = {
   /**
-   * Optimized count aggregation using Supabase.
+   * Optimized count aggregation.
+   * Reduces 1000+ reads to 1 single read.
    */
   getProductCount: async (): Promise<number> => {
     try {
-      const { count, error } = await supabase
-        .from('products')
-        .select('*', { count: 'exact', head: true });
-      
-      if (error) throw error;
-      return count || 0;
+      const coll = collection(db, 'products');
+      const snapshot = await getCountFromServer(coll);
+      return snapshot.data().count;
     } catch (error) {
       console.error('[ProductService] Error getting count:', error);
       return 0;
@@ -30,25 +40,41 @@ export const ProductService = {
   },
 
   /**
-   * Fetches products using Supabase.
-   * Implements automated stock status logic.
+   * Fetches products with a Stale-While-Revalidate (SWR) strategy.
+   * Returns cached data immediately if available, then updates from server.
    */
   getProducts: async (onUpdate?: (products: Product[]) => void): Promise<Product[]> => {
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .order('name');
+      const productsRef = collection(db, 'products');
+      const q = query(productsRef, orderBy('name'));
 
-      if (error) throw error;
+      // 1. Try to get from cache first (Stale)
+      let products: Product[] = [];
+      try {
+        const cacheSnapshot = await getDocsFromCache(q);
+        if (!cacheSnapshot.empty) {
+          products = cacheSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...(doc.data() as any)
+          })) as Product[];
+          console.log('[ProductService] Serving from local cache (SWR)');
+          if (onUpdate) onUpdate(products);
+        }
+      } catch (e) {
+        console.log('[ProductService] Cache miss or not available');
+      }
 
-      const products = (data || []).map(p => ({
-        ...p,
-        stockStatus: getDerivedStockStatus(p.stock)
+      // 2. Revalidate from server
+      const serverSnapshot = await getDocsFromServer(q);
+      const serverProducts = serverSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...(doc.data() as any)
       })) as Product[];
 
-      if (onUpdate) onUpdate(products);
-      return products;
+      console.log('[ProductService] Revalidated from server');
+      if (onUpdate) onUpdate(serverProducts);
+      
+      return serverProducts;
     } catch (error) {
       console.error('[ProductService] Error fetching products:', error);
       throw error;
@@ -56,30 +82,31 @@ export const ProductService = {
   },
 
   /**
-   * Paginated fetching using Supabase range.
+   * Scalable cursor-based pagination.
+   * Loads only 20 products at a time.
    */
-  getProductsPaginated: async (pageSize = 20, page = 0) => {
+  getProductsPaginated: async (pageSize = 20, lastDoc: QueryDocumentSnapshot<DocumentData> | null = null) => {
     try {
-      const from = page * pageSize;
-      const to = from + pageSize - 1;
+      const productsRef = collection(db, 'products');
+      let q;
+      
+      if (lastDoc) {
+        q = query(productsRef, orderBy('name'), startAfter(lastDoc), limit(pageSize));
+      } else {
+        q = query(productsRef, orderBy('name'), limit(pageSize));
+      }
 
-      const { data, error, count } = await supabase
-        .from('products')
-        .select('*', { count: 'exact' })
-        .order('name')
-        .range(from, to);
-
-      if (error) throw error;
-
-      const products = (data || []).map(p => ({
-        ...p,
-        stockStatus: getDerivedStockStatus(p.stock)
+      // Use getDocs which automatically handles cache/server based on persistence
+      const snapshot = await getDocs(q);
+      const products = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...(doc.data() as any)
       })) as Product[];
 
       return {
         products,
-        nextPage: products.length === pageSize ? page + 1 : null,
-        hasMore: (count || 0) > to + 1
+        lastDoc: snapshot.docs[snapshot.docs.length - 1] || null,
+        hasMore: snapshot.docs.length === pageSize
       };
     } catch (error) {
       console.error('[ProductService] Pagination error:', error);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../supabase';
+import { db, auth, handleFirestoreError, OperationType } from '../firebase';
+import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, setDoc, onSnapshot, getCountFromServer } from 'firebase/firestore';
 import { Product, Review, SiteSettings } from '../types';
 import { useSettings } from '../contexts/SettingsContext';
 import { 
@@ -9,12 +10,10 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { ProductService } from '../services/ProductService';
 
-import { StorageService } from '../services/StorageService';
-
 export const AdminDashboard = () => {
   const [productCount, setProductCount] = useState(0);
   const [orderCount, setOrderCount] = useState(0);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'add-product' | 'inventory' | 'orders' | 'reviews' | 'research' | 'logo' | 'banner' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'add-product' | 'orders' | 'reviews' | 'research' | 'logo' | 'banner' | 'settings'>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
@@ -24,7 +23,6 @@ export const AdminDashboard = () => {
   const [isAddingReview, setIsAddingReview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'product' | 'order' | 'review' } | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const { settings: globalSettings } = useSettings();
@@ -40,20 +38,12 @@ export const AdminDashboard = () => {
     name: '',
     price: 0,
     original_price: 0,
-    stock: 0,
-    totalStock: 0,
-    soldQuantity: 0,
-    lowStockThreshold: 5,
     description: '',
     image: '',
     images: [],
     notes: [],
     usage: '',
-    stockStatus: 'In Stock',
     featured: false,
-    badge: '',
-    category: '',
-    discount: 0,
     sizePrices: {
       '30ml': 0,
       '50ml': 0,
@@ -91,44 +81,42 @@ export const AdminDashboard = () => {
         const pCount = await ProductService.getProductCount();
         setProductCount(pCount);
 
-        const { count: oCount } = await supabase
-          .from('orders')
-          .select('*', { count: 'exact', head: true });
-        setOrderCount(oCount || 0);
+        const ordersColl = collection(db, 'orders');
+        const oCount = await getCountFromServer(ordersColl);
+        setOrderCount(oCount.data().count);
       } catch (error) {
         console.error("Error fetching dashboard counts:", error);
       }
     };
     fetchCounts();
 
-    const fetchAllData = async () => {
-      setLoading(true);
-      try {
-        const { data: productsData } = await supabase.from('products').select('*').order('name');
-        setProducts(productsData || []);
+    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+      const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Product[];
+      setProducts(productsData);
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'products');
+      setLoading(false);
+    });
 
-        const { data: ordersData } = await supabase.from('orders').select('*').order('timestamp', { ascending: false });
-        setOrders(ordersData || []);
+    const unsubOrders = onSnapshot(collection(db, 'orders'), (snapshot) => {
+      const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setOrders(ordersData);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'orders');
+    });
 
-        const { data: reviewsData } = await supabase.from('reviews').select('*').order('created_at', { ascending: false });
-        setReviews(reviewsData || []);
-      } catch (error) {
-        console.error("Error fetching dashboard data:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchAllData();
-
-    // Realtime subscriptions
-    const productsChannel = supabase.channel('admin-products').on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, fetchAllData).subscribe();
-    const ordersChannel = supabase.channel('admin-orders').on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchAllData).subscribe();
-    const reviewsChannel = supabase.channel('admin-reviews').on('postgres_changes', { event: '*', schema: 'public', table: 'reviews' }, fetchAllData).subscribe();
+    const unsubReviews = onSnapshot(collection(db, 'reviews'), (snapshot) => {
+      const reviewsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Review[];
+      setReviews(reviewsData);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'reviews');
+    });
 
     return () => {
-      supabase.removeChannel(productsChannel);
-      supabase.removeChannel(ordersChannel);
-      supabase.removeChannel(reviewsChannel);
+      unsubProducts();
+      unsubOrders();
+      unsubReviews();
     };
   }, []);
 
@@ -138,22 +126,18 @@ export const AdminDashboard = () => {
   };
 
   // --- Image Handling ---
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, callback: (url: string) => void) => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, callback: (base64: string) => void) => {
     const file = e.target.files?.[0];
     if (file) {
-      setIsUploading(true);
-      try {
-        const url = await StorageService.uploadFile(file);
-        callback(url);
-      } catch (error) {
-        alert('Failed to upload image. Make sure you have a "products" bucket in Supabase Storage set to public.');
-      } finally {
-        setIsUploading(false);
-      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        callback(reader.result as string);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
-  const handleMultipleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMultipleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
     
     // Basic validation
@@ -162,22 +146,33 @@ export const AdminDashboard = () => {
       alert('Some files were not images and were skipped.');
     }
     
-    setIsUploading(true);
-    try {
-      const uploadPromises = validFiles.map(file => StorageService.uploadFile(file));
-      const urls = await Promise.all(uploadPromises);
-      
+    // Size validation (limit to 500KB per image to avoid Firestore document limits)
+    const MAX_SIZE = 500 * 1024;
+    const oversizedFiles = validFiles.filter(file => file.size > MAX_SIZE);
+    if (oversizedFiles.length > 0) {
+      alert('Some images are too large (max 500KB). Please compress them.');
+      return;
+    }
+
+    const promises = validFiles.map(file => {
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    });
+
+    Promise.all(promises).then(base64Images => {
       setNewProduct(prev => ({
         ...prev,
-        images: [...(prev.images || []), ...urls],
-        image: prev.image || urls[0] // Set first image as main if not set
+        images: [...(prev.images || []), ...base64Images],
+        image: prev.image || base64Images[0] // Set first image as main if not set
       }));
-    } catch (error) {
-      console.error('Error uploading images:', error);
-      alert('Failed to upload some images. Make sure you have a "products" bucket in Supabase Storage set to public.');
-    } finally {
-      setIsUploading(false);
-    }
+    }).catch(err => {
+      console.error('Error processing images:', err);
+      alert('Failed to process images. Please try again.');
+    });
   };
 
   const removeImage = (index: number) => {
@@ -207,55 +202,47 @@ export const AdminDashboard = () => {
         cleanEditForm.image = cleanEditForm.images[0];
       }
       
-      // Filter out undefined values
+      // Filter out undefined values to prevent Firestore errors
       const productData = Object.fromEntries(
         Object.entries(cleanEditForm).filter(([_, v]) => v !== undefined)
       );
 
-      const { error } = await supabase.from('products').update(productData).eq('id', editingId);
-      if (error) throw error;
-
+      const docRef = doc(db, 'products', editingId);
+      await updateDoc(docRef, productData);
       showSuccess('Product updated successfully');
       setEditingId(null);
-    } catch (error: any) {
-      console.error('Error updating product:', error);
-      alert(`Failed to update product: ${error.message || 'Unknown error'}`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `products/${editingId}`);
     }
   };
 
   const handleDeleteProduct = async (id: string) => {
     try {
-      const { error } = await supabase.from('products').delete().eq('id', id);
-      if (error) throw error;
+      await deleteDoc(doc(db, 'products', id));
       showSuccess('Product deleted successfully');
       setDeleteConfirm(null);
     } catch (error) {
-      console.error('Error deleting product:', error);
-      alert('Failed to delete product');
+      handleFirestoreError(error, OperationType.DELETE, `products/${id}`);
     }
   };
 
   const handleDeleteOrder = async (id: string) => {
     try {
-      const { error } = await supabase.from('orders').delete().eq('id', id);
-      if (error) throw error;
+      await deleteDoc(doc(db, 'orders', id));
       showSuccess('Order deleted successfully');
       setDeleteConfirm(null);
     } catch (error) {
-      console.error('Error deleting order:', error);
-      alert('Failed to delete order');
+      handleFirestoreError(error, OperationType.DELETE, `orders/${id}`);
     }
   };
 
   const handleDeleteReview = async (id: string) => {
     try {
-      const { error } = await supabase.from('reviews').delete().eq('id', id);
-      if (error) throw error;
+      await deleteDoc(doc(db, 'reviews', id));
       showSuccess('Review deleted successfully');
       setDeleteConfirm(null);
     } catch (error) {
-      console.error('Error deleting review:', error);
-      alert('Failed to delete review');
+      handleFirestoreError(error, OperationType.DELETE, `reviews/${id}`);
     }
   };
 
@@ -283,15 +270,12 @@ export const AdminDashboard = () => {
     try {
       if (editingProduct) {
         // Update existing product
-        const { error } = await supabase.from('products').update(productData).eq('id', editingProduct.id);
-        if (error) throw error;
+        const docRef = doc(db, 'products', editingProduct.id);
+        await updateDoc(docRef, productData);
         showSuccess('Product updated successfully');
       } else {
         // Add new product
-        // Generate a simple ID if not present
-        const id = Math.random().toString(36).substring(2, 15);
-        const { error } = await supabase.from('products').insert({ id, ...productData });
-        if (error) throw error;
+        await addDoc(collection(db, 'products'), productData);
         showSuccess('Product added successfully');
       }
       
@@ -301,20 +285,12 @@ export const AdminDashboard = () => {
         name: '',
         price: 0,
         original_price: 0,
-        stock: 0,
-        totalStock: 0,
-        soldQuantity: 0,
-        lowStockThreshold: 5,
         description: '',
         image: '',
         images: [],
         notes: [],
         usage: '',
-        stockStatus: 'In Stock',
         featured: false,
-        badge: '',
-        category: '',
-        discount: 0,
         sizePrices: {
           '30ml': 0,
           '50ml': 0,
@@ -325,9 +301,8 @@ export const AdminDashboard = () => {
       setEditingProduct(null);
       setActiveTab('products');
       setIsSidebarOpen(false);
-    } catch (error: any) {
-      console.error('Error adding/updating product:', error);
-      alert(`Failed to save product: ${error.message || 'Unknown error'}`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'products');
     } finally {
       setIsSubmitting(false);
     }
@@ -347,13 +322,11 @@ export const AdminDashboard = () => {
       name: '',
       price: 0,
       original_price: 0,
-      stock: 0,
       description: '',
       image: '',
       images: [],
       notes: [],
       usage: '',
-      stockStatus: 'In Stock',
       featured: false,
       sizePrices: {
         '30ml': 0,
@@ -368,20 +341,18 @@ export const AdminDashboard = () => {
   // --- Order Actions ---
   const handleOrderStatus = async (id: string, status: string) => {
     try {
-      const { error } = await supabase.from('orders').update({ status }).eq('id', id);
-      if (error) throw error;
+      await updateDoc(doc(db, 'orders', id), { status });
     } catch (error) {
-      console.error('Error updating order status:', error);
+      handleFirestoreError(error, OperationType.UPDATE, `orders/${id}`);
     }
   };
 
   // --- Reviews Actions ---
   const handleReviewStatus = async (id: string, status: 'approved' | 'rejected') => {
     try {
-      const { error } = await supabase.from('reviews').update({ status }).eq('id', id);
-      if (error) throw error;
+      await updateDoc(doc(db, 'reviews', id), { status });
     } catch (error) {
-      console.error('Error updating review status:', error);
+      handleFirestoreError(error, OperationType.UPDATE, `reviews/${id}`);
     }
   };
 
@@ -399,15 +370,12 @@ export const AdminDashboard = () => {
           createdAt: Date.now()
         }).filter(([_, v]) => v !== undefined)
       );
-      const id = Math.random().toString(36).substring(2, 15);
-      const { error } = await supabase.from('reviews').insert({ id, ...reviewData });
-      if (error) throw error;
-
+      const docRef = await addDoc(collection(db, 'reviews'), reviewData);
       setNewReviewForm({ productId: '', customerName: '', rating: 5, comment: '', verified: true });
       setIsAddingReview(false);
       alert('Verified review added successfully!');
     } catch (error) {
-      console.error('Error adding manual review:', error);
+      handleFirestoreError(error, OperationType.WRITE, 'reviews');
     }
   };
 
@@ -417,12 +385,10 @@ export const AdminDashboard = () => {
       const settingsData = Object.fromEntries(
         Object.entries(siteSettingsForm).filter(([_, v]) => v !== undefined)
       );
-      const { error } = await supabase.from('settings').upsert({ id: 'general', ...settingsData });
-      if (error) throw error;
+      await setDoc(doc(db, 'settings', 'general'), settingsData);
       showSuccess('Settings updated successfully');
-    } catch (error: any) {
-      console.error('Error saving settings:', error);
-      alert(`Failed to save settings: ${error.message || 'Unknown error'}`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'settings/site');
     }
   };
 
@@ -438,7 +404,6 @@ export const AdminDashboard = () => {
     { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { id: 'products', icon: Package, label: 'Products' },
     { id: 'add-product', icon: PlusCircle, label: 'Add Product' },
-    { id: 'inventory', icon: BarChart3, label: 'Inventory' },
     { id: 'orders', icon: ShoppingBag, label: 'Orders' },
     { id: 'reviews', icon: MessageSquare, label: 'Reviews' },
     { id: 'research', icon: TrendingUp, label: 'Product Research' },
@@ -714,11 +679,11 @@ export const AdminDashboard = () => {
 
               <div className="bg-blue-light p-5 rounded-2xl border-2 border-blue shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="p-2 bg-white text-black rounded-lg border-2 border-blue"><BarChart3 size={20} /></span>
-                  <span className="text-xs font-bold text-blue-dark/70">Low Stock</span>
+                  <span className="p-2 bg-white text-black rounded-lg border-2 border-blue"><Star size={20} /></span>
+                  <span className="text-xs font-bold text-blue-dark/70">Featured</span>
                 </div>
-                <p className="text-2xl font-black text-black">{products.filter(p => (p.stock || 0) <= (p.lowStockThreshold || 5)).length}</p>
-                <p className="text-xs font-medium text-blue-dark/60 mt-1">Items needing restock</p>
+                <p className="text-2xl font-black text-black">{products.filter(p => p.featured).length}</p>
+                <p className="text-xs font-medium text-blue-dark/60 mt-1">Featured items in store</p>
               </div>
 
               <div className="bg-blue-light p-5 rounded-2xl border-2 border-blue shadow-sm hover:shadow-md transition-shadow">
@@ -785,7 +750,6 @@ export const AdminDashboard = () => {
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-bold text-black">PKR {product.price.toLocaleString()}</p>
-                        <p className="text-[10px] font-medium text-blue-dark/60">Stock: {product.stock}</p>
                       </div>
                     </div>
                   ))}
@@ -812,7 +776,6 @@ export const AdminDashboard = () => {
                     <tr className="bg-blue-light text-black text-sm uppercase tracking-wider border-b-2 border-blue">
                       <th className="p-4 font-bold">Product</th>
                       <th className="p-4 font-bold">Price</th>
-                      <th className="p-4 font-bold">Stock Status</th>
                       <th className="p-4 font-bold">Featured</th>
                       <th className="p-4 font-bold text-right">Actions</th>
                     </tr>
@@ -848,23 +811,6 @@ export const AdminDashboard = () => {
                               <div className="font-bold text-black">PKR {product.price.toLocaleString()}</div>
                               {product.original_price && <div className="text-xs text-blue-dark/60 font-medium line-through">PKR {product.original_price.toLocaleString()}</div>}
                             </div>
-                          )}
-                        </td>
-                        <td className="p-4">
-                          {editingId === product.id ? (
-                            <select className="px-2 py-1 border-2 border-blue bg-white text-black rounded-lg text-sm font-medium focus:border-black outline-none" value={editForm.stockStatus || 'In Stock'} onChange={e => setEditForm({ ...editForm, stockStatus: e.target.value as any })}>
-                              <option value="In Stock">In Stock</option>
-                              <option value="Limited">Limited</option>
-                              <option value="Out of Stock">Out of Stock</option>
-                            </select>
-                          ) : (
-                            <span className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap border ${
-                              product.stockStatus === 'Out of Stock' ? 'bg-red-100 text-red-800 border-red-200' :
-                              product.stockStatus === 'Limited' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
-                              'bg-green-100 text-green-800 border-green-200'
-                            }`}>
-                              {product.stockStatus || 'In Stock'}
-                            </span>
                           )}
                         </td>
                         <td className="p-4">
@@ -915,22 +861,6 @@ export const AdminDashboard = () => {
                   <input type="text" className="w-full p-3 border-2 border-blue bg-white text-black rounded-xl focus:border-black outline-none transition-all font-medium" value={newProduct.name || ''} onChange={e => setNewProduct({...newProduct, name: e.target.value})} />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-bold text-blue-dark/70">Stock Status</label>
-                  <select className="w-full p-3 border-2 border-blue bg-white text-black rounded-xl focus:border-black outline-none transition-all font-medium" value={newProduct.stockStatus || 'In Stock'} onChange={e => setNewProduct({...newProduct, stockStatus: e.target.value as any})}>
-                    <option value="In Stock">In Stock</option>
-                    <option value="Limited">Limited</option>
-                    <option value="Out of Stock">Out of Stock</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-blue-dark/70">Initial Total Stock</label>
-                  <input type="number" className="w-full p-3 border-2 border-blue bg-white text-black rounded-xl focus:border-black outline-none transition-all font-medium" value={newProduct.totalStock || ''} onChange={e => setNewProduct({...newProduct, totalStock: Number(e.target.value), stock: Number(e.target.value)})} />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-blue-dark/70">Low Stock Threshold</label>
-                  <input type="number" className="w-full p-3 border-2 border-blue bg-white text-black rounded-xl focus:border-black outline-none transition-all font-medium" value={newProduct.lowStockThreshold || ''} onChange={e => setNewProduct({...newProduct, lowStockThreshold: Number(e.target.value)})} />
-                </div>
-                <div className="space-y-2">
                   <label className="text-sm font-bold text-blue-dark/70">Current Price (PKR)</label>
                   <input type="number" className="w-full p-3 border-2 border-blue bg-white text-black rounded-xl focus:border-black outline-none transition-all font-medium" value={newProduct.price || ''} onChange={e => setNewProduct({...newProduct, price: Number(e.target.value)})} />
                 </div>
@@ -977,10 +907,7 @@ export const AdminDashboard = () => {
               <div className="space-y-2">
                 <label className="text-sm font-bold text-blue-dark/70">Product Images (Upload Multiple)</label>
                 <div className="flex flex-col gap-4">
-                  <div className="flex items-center gap-4">
-                    <input type="file" accept="image/*" multiple onChange={handleMultipleImageUpload} disabled={isUploading} className="block w-full text-sm text-blue-dark/60 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-blue-light file:text-black hover:file:bg-blue hover:file:text-white transition-colors disabled:opacity-50" />
-                    {isUploading && <Loader2 className="animate-spin text-blue-dark" size={20} />}
-                  </div>
+                  <input type="file" accept="image/*" multiple onChange={handleMultipleImageUpload} className="block w-full text-sm text-blue-dark/60 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-blue-light file:text-black hover:file:bg-blue hover:file:text-white transition-colors" />
                   <p className="text-xs font-medium text-blue-dark/60">First image will be used as the main display image.</p>
                   
                   {newProduct.images && newProduct.images.length > 0 && (
@@ -1023,83 +950,6 @@ export const AdminDashboard = () => {
                     editingProduct ? 'Update Product' : 'Save Product'
                   )}
                 </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* INVENTORY TAB */}
-        {activeTab === 'inventory' && (
-          <div className="space-y-6">
-            <h1 className="text-2xl font-bold text-black">Inventory Management</h1>
-            <div className="bg-white rounded-3xl border-2 border-blue shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-[800px]">
-                  <thead>
-                    <tr className="bg-blue-light text-black text-sm uppercase tracking-wider border-b-2 border-blue">
-                      <th className="p-4 font-bold">Product Name</th>
-                      <th className="p-4 font-bold">Total Stock</th>
-                      <th className="p-4 font-bold">Sold</th>
-                      <th className="p-4 font-bold">Remaining</th>
-                      <th className="p-4 font-bold">Status</th>
-                      <th className="p-4 font-bold text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y-2 divide-blue">
-                    {products.map(product => {
-                      const remaining = product.stock || 0;
-                      const threshold = product.lowStockThreshold || 5;
-                      const isLowStock = remaining <= threshold && remaining > 0;
-                      const isOutOfStock = remaining === 0;
-                      
-                      return (
-                        <tr key={product.id} className="hover:bg-blue-light transition-colors">
-                          <td className="p-4">
-                            <div className="font-bold text-black">{product.name}</div>
-                            <div className="text-xs text-blue-dark/60 font-medium">ID: {product.id.slice(0, 8)}</div>
-                          </td>
-                          <td className="p-4 font-mono text-black font-medium">{product.totalStock || 0}</td>
-                          <td className="p-4 font-mono text-black font-medium">{product.soldQuantity || 0}</td>
-                          <td className="p-4 font-mono font-bold text-black">{remaining}</td>
-                          <td className="p-4">
-                            <span className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap border ${
-                              isOutOfStock ? 'bg-red-100 text-red-800 border-red-200' : 
-                              isLowStock ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : 
-                              'bg-green-100 text-green-800 border-green-200'
-                            }`}>
-                              {isOutOfStock ? 'Out of Stock' : isLowStock ? 'Low Stock' : 'In Stock'}
-                            </span>
-                          </td>
-                          <td className="p-4 text-right">
-                            <div className="flex justify-end space-x-2">
-                              <button 
-                                onClick={async () => {
-                                  const newStock = parseInt(window.prompt('Enter new remaining stock:', remaining.toString()) || '');
-                                  if (!isNaN(newStock) && newStock >= 0) {
-                                    await supabase.from('products').update({ 
-                                      stock: newStock,
-                                      stockStatus: newStock === 0 ? 'Out of Stock' : newStock <= threshold ? 'Limited' : 'In Stock'
-                                    }).eq('id', product.id);
-                                  }
-                                }}
-                                  className="px-3 py-1 bg-black text-white font-bold rounded-lg hover:bg-blue hover:text-white border-2 border-transparent hover:border-black transition-colors text-sm"
-                              >
-                                Update Stock
-                              </button>
-                              <button 
-                                onClick={() => setDeleteConfirm({ id: product.id, type: 'product' })}
-                                className="p-2 text-red-500 hover:bg-red-50 rounded-full transition-colors"
-                                title="Delete"
-                              >
-                                <Trash2 size={20} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
               </div>
             </div>
           </div>
@@ -1433,10 +1283,7 @@ export const AdminDashboard = () => {
                 </div>
                 <div className="flex-1 space-y-4 w-full">
                   <h3 className="font-bold text-black">Update Website Logo</h3>
-                  <div className="flex items-center gap-4">
-                    <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, (url) => setSiteSettingsForm({...siteSettingsForm, logo: url}))} disabled={isUploading} className="block w-full text-sm text-blue-dark/60 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-blue-light file:text-black hover:file:bg-blue hover:file:text-white transition-colors disabled:opacity-50" />
-                    {isUploading && <Loader2 className="animate-spin text-blue-dark" size={20} />}
-                  </div>
+                  <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, (base64) => setSiteSettingsForm({...siteSettingsForm, logo: base64}))} className="block w-full text-sm text-blue-dark/60 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-blue-light file:text-black hover:file:bg-blue hover:file:text-white transition-colors" />
                   <p className="text-xs font-medium text-blue-dark/60 leading-relaxed">Upload a high-quality transparent PNG. This logo will appear in the navigation bar and footer across the entire website.</p>
                   
                   <button onClick={handleSaveSettings} className="w-full py-3 bg-black text-white font-bold rounded-xl hover:bg-blue hover:text-white border-2 border-transparent hover:border-black transition-all shadow-xl">

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { CartItem, Product } from '../types';
-import { supabase } from '../supabase';
+import { db } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 interface CartContextType {
   cart: CartItem[];
@@ -33,13 +34,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const updatedCart = await Promise.all(
           cart.map(async (item) => {
             try {
-              const { data: latestData, error } = await supabase
-                .from('products')
-                .select('*')
-                .eq('id', item.id)
-                .single();
+              const docRef = doc(db, 'products', item.id);
+              const docSnap = await getDoc(docRef);
               
-              if (!error && latestData) {
+              if (docSnap.exists()) {
+                const latestData = docSnap.data() as Product;
                 // Ensure image is correctly picked from images array if main image is missing
                 const latestImage = latestData.image || (latestData.images && latestData.images.length > 0 ? latestData.images[0] : '');
                 
@@ -60,8 +59,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
                 return item;
               }
-              // If product no longer exists or error, we'll filter it out later
-              return error ? item : null;
+              // If product no longer exists, we'll filter it out later
+              return null;
             } catch (err) {
               console.error(`Error syncing item ${item.id}:`, err);
               return item;

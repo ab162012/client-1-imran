@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Product, Review } from '../types';
+import { QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
+import { Product } from '../types';
 import { ProductCard } from './Common';
 import { ProductService } from '../services/ProductService';
-import { supabase } from '../supabase';
 
 interface ProductsListProps {
   featuredOnly?: boolean;
@@ -10,11 +10,10 @@ interface ProductsListProps {
 
 export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false }) => {
   const [products, setProducts] = useState<Product[]>([]);
-  const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
-  const [currentPage, setCurrentPage] = useState(0);
+  const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [totalCount, setTotalCount] = useState<number | null>(null);
 
@@ -35,16 +34,16 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
     try {
       setLoading(true);
       
-      // Get total count
+      // Get total count using aggregation query (1 read)
       const count = await ProductService.getProductCount();
       setTotalCount(count);
 
-      // Fetch first page
-      const result = await ProductService.getProductsPaginated(20, 0);
+      // Fetch first page (20 items)
+      const result = await ProductService.getProductsPaginated(20);
       const processed = processProducts(result.products);
       
       setProducts(featuredOnly ? processed.filter(p => p.featured) : processed);
-      setCurrentPage(result.nextPage || 0);
+      setLastDoc(result.lastDoc);
       setHasMore(result.hasMore);
     } catch (error) {
       console.error("Error loading products:", error);
@@ -54,14 +53,14 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
   };
 
   const loadMore = async () => {
-    if (loadingMore || !hasMore) return;
+    if (loadingMore || !lastDoc) return;
     try {
       setLoadingMore(true);
-      const result = await ProductService.getProductsPaginated(20, currentPage);
+      const result = await ProductService.getProductsPaginated(20, lastDoc);
       const processed = processProducts(result.products);
       
       setProducts(prev => [...prev, ...(featuredOnly ? processed.filter(p => p.featured) : processed)]);
-      setCurrentPage(result.nextPage || currentPage);
+      setLastDoc(result.lastDoc);
       setHasMore(result.hasMore);
     } catch (error) {
       console.error("Error loading more products:", error);
@@ -72,30 +71,6 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
 
   useEffect(() => {
     fetchInitialProducts();
-
-    const fetchReviews = async () => {
-      const { data, error } = await supabase
-        .from('reviews')
-        .select('*')
-        .eq('status', 'approved');
-      
-      if (!error && data) {
-        setReviews(data as Review[]);
-      }
-    };
-    fetchReviews();
-
-    // Supabase Realtime for reviews (optional but nice)
-    const channel = supabase
-      .channel('reviews-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews' }, () => {
-        fetchReviews();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [featuredOnly]);
 
   if (loading) {
@@ -145,21 +120,12 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
       ) : (
         <>
           <div className="grid grid-cols-2 md:grid-cols-2 gap-4 md:gap-12 max-w-4xl mx-auto">
-            {filteredProducts.map((product) => {
-              const productReviews = reviews.filter(r => r.productId === product.id && r.status === 'approved');
-              const avgRating = productReviews.length > 0 
-                ? productReviews.reduce((acc, r) => acc + r.rating, 0) / productReviews.length 
-                : 0;
-              
-              return (
-                <ProductCard 
-                  key={product.id} 
-                  product={product} 
-                  rating={avgRating} 
-                  reviewCount={productReviews.length} 
-                />
-              );
-            })}
+            {filteredProducts.map((product) => (
+              <ProductCard 
+                key={product.id} 
+                product={product} 
+              />
+            ))}
           </div>
 
           {hasMore && !featuredOnly && (

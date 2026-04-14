@@ -5,7 +5,8 @@ import { ProductsList } from '../components/ProductsList';
 import { ProductCard } from '../components/Common';
 import { CheckCircle2, Gift, Star, MessageSquare, ShoppingBag } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
-import { supabase } from '../supabase';
+import { db } from '../firebase';
+import { collection, query, where, limit, onSnapshot, doc } from 'firebase/firestore';
 import { Product, Review } from '../types';
 import { FeaturedCarousel } from '../components/FeaturedCarousel';
 import { DeliveryTimeline } from '../components/DeliveryTimeline';
@@ -17,66 +18,32 @@ export const Home = () => {
   const [loadingTestimonials, setLoadingTestimonials] = useState(true);
 
   useEffect(() => {
-    const fetchTestimonials = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('reviews')
-          .select('*')
-          .eq('status', 'approved')
-          .limit(2);
-        
-        if (error) throw error;
-        setTestimonials(data as Review[]);
-      } catch (error) {
-        console.error("Error fetching testimonials:", error);
-      } finally {
-        setLoadingTestimonials(false);
-      }
-    };
-
-    fetchTestimonials();
-
-    const channel = supabase
-      .channel('public-reviews')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews', filter: 'status=eq.approved' }, fetchTestimonials)
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    const q = query(collection(db, 'reviews'), where('status', '==', 'approved'), limit(2));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const reviewsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Review[];
+      setTestimonials(reviewsData);
+      setLoadingTestimonials(false);
+    }, (error) => {
+      console.error("Error fetching testimonials:", error);
+      setLoadingTestimonials(false);
+    });
+    return () => unsub();
   }, []);
 
   useEffect(() => {
     if (!settings?.heroProductId) return;
 
-    const fetchHeroProduct = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('products')
-          .select('*')
-          .eq('id', settings.heroProductId)
-          .single();
-        
-        if (!error && data) {
-          setHeroProduct(data as Product);
-        } else {
-          setHeroProduct(null);
-        }
-      } catch (error) {
-        console.error("Error fetching hero product:", error);
+    const unsubHero = onSnapshot(doc(db, 'products', settings.heroProductId), (docSnap) => {
+      if (docSnap.exists()) {
+        setHeroProduct({ id: docSnap.id, ...docSnap.data() } as Product);
+      } else {
+        setHeroProduct(null);
       }
-    };
+    }, (error) => {
+      console.error("Error fetching hero product:", error);
+    });
 
-    fetchHeroProduct();
-
-    const channel = supabase
-      .channel('hero-product')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'products', filter: `id=eq.${settings.heroProductId}` }, fetchHeroProduct)
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => unsubHero();
   }, [settings?.heroProductId]);
 
   const displayHeroName = heroProduct?.name || "Smell Different.";

@@ -16,7 +16,7 @@ service cloud.firestore {
     }
 
     function isValidProduct(data) {
-      return hasOnlyAllowedFields(['name', 'price', 'original_price', 'description', 'image', 'images', 'notes', 'usage', 'stock', 'totalStock', 'soldQuantity', 'lowStockThreshold', 'views', 'stockStatus', 'featured', 'createdAt', 'discount']) &&
+      return hasOnlyAllowedFields(['name', 'price', 'original_price', 'description', 'image', 'images', 'notes', 'usage', 'views', 'featured', 'createdAt', 'discount', 'reviewCount', 'sizePrices', 'category', 'badge']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.price is number && data.price > 0 &&
              (!('original_price' in data) || (data.original_price is number && data.original_price > 0)) &&
@@ -25,15 +25,14 @@ service cloud.firestore {
              (!('images' in data) || data.images is list) &&
              data.notes is list && data.notes.size() < 20 &&
              data.usage is string && data.usage.size() < 500 &&
-             (!('stock' in data) || (data.stock is number && data.stock >= 0)) &&
-             (!('totalStock' in data) || (data.totalStock is number && data.totalStock >= 0)) &&
-             (!('soldQuantity' in data) || (data.soldQuantity is number && data.soldQuantity >= 0)) &&
-             (!('lowStockThreshold' in data) || (data.lowStockThreshold is number && data.lowStockThreshold >= 0)) &&
              (!('views' in data) || (data.views is number && data.views >= 0)) &&
-             (!('stockStatus' in data) || (data.stockStatus is string)) &&
              (!('featured' in data) || (data.featured is bool)) &&
              (!('createdAt' in data) || (data.createdAt is number)) &&
-             (!('discount' in data) || (data.discount is number));
+             (!('discount' in data) || (data.discount is number)) &&
+             (!('reviewCount' in data) || (data.reviewCount is number)) &&
+             (!('sizePrices' in data) || (data.sizePrices is map)) &&
+             (!('category' in data) || (data.category is string)) &&
+             (!('badge' in data) || (data.badge is string));
     }
 
     function isValidOrder(data) {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { supabase } from '../supabase';
+import { db, handleFirestoreError, OperationType } from '../firebase';
+import { doc, onSnapshot, collection, query, where, addDoc, updateDoc, increment, limit, getDocs } from 'firebase/firestore';
 import { Product, Review } from '../types';
 import { useCart } from '../hooks/useCart';
 import { Minus, Plus, ShoppingBag, ArrowLeft, ShieldCheck, Zap, Eye, Star, TrendingUp, Heart, Clock, MapPin, CheckCircle2 } from 'lucide-react';
@@ -30,6 +31,8 @@ export const ProductDetailPage = () => {
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewSuccess, setReviewSuccess] = useState(false);
 
+  const [showReviews, setShowReviews] = useState(false);
+
   useEffect(() => {
     // Simulate random viewers and purchases for urgency
     setViewers(Math.floor(Math.random() * 15) + 8);
@@ -38,30 +41,20 @@ export const ProductDetailPage = () => {
 
     if (!id) return;
 
+    // Optimized Product Fetching using Cache
     const fetchProductData = async () => {
       try {
         setLoading(true);
-        const { data: foundProduct, error } = await supabase
-          .from('products')
-          .select('*')
-          .eq('id', id)
-          .single();
+        const products = await ProductService.getProducts();
+        const foundProduct = products.find(p => p.id === id);
         
-        if (!error && foundProduct) {
-          setProduct(foundProduct as Product);
+        if (foundProduct) {
+          setProduct(foundProduct);
           setMainImage(foundProduct.image);
           
-          // Set Bundles (Featured products)
-          const { data: featured } = await supabase
-            .from('products')
-            .select('*')
-            .eq('featured', true)
-            .neq('id', id)
-            .limit(2);
-          setBundles(featured as Product[] || []);
-
-          // Increment views
-          await supabase.from('products').update({ views: (foundProduct.views || 0) + 1 }).eq('id', id);
+          // Set Bundles from cache
+          const featured = products.filter(p => p.featured && p.id !== id);
+          setBundles(featured.slice(0, 2));
         } else {
           setProduct(null);
         }
@@ -74,23 +67,17 @@ export const ProductDetailPage = () => {
 
     fetchProductData();
 
-    const fetchReviews = async () => {
-      const { data, error } = await supabase
-        .from('reviews')
-        .select('*')
-        .eq('product_id', id)
-        .eq('status', 'approved');
-      
-      if (!error && data) {
-        setReviews(data as Review[]);
-      }
-    };
-    fetchReviews();
-
-    const channel = supabase
-      .channel(`reviews-${id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews', filter: `product_id=eq.${id}` }, fetchReviews)
-      .subscribe();
+    let unsubReviews: (() => void) | undefined;
+    if (showReviews) {
+      // Real-time Reviews Listener (Keep this real-time as it's dynamic)
+      const q = query(collection(db, 'reviews'), where('productId', '==', id), where('status', '==', 'approved'));
+      unsubReviews = onSnapshot(q, (snapshot) => {
+        const reviewsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Review[];
+        setReviews(reviewsData);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'reviews');
+      });
+    }
 
     // Simulate Recent Purchase Notification
     const cities = ['Karachi', 'Lahore', 'Islamabad', 'Faisalabad', 'Rawalpindi', 'Multan', 'Gujranwala', 'Peshawar'];
@@ -107,11 +94,23 @@ export const ProductDetailPage = () => {
       if (Math.random() > 0.7) showNotification();
     }, 15000);
 
+    // Increment views (one-time)
+    const incrementViews = async () => {
+      try {
+        await updateDoc(doc(db, 'products', id), {
+          views: increment(1)
+        });
+      } catch (e) {
+        console.error("Failed to increment views", e);
+      }
+    };
+    incrementViews();
+
     return () => {
-      supabase.removeChannel(channel);
+      if (unsubReviews) unsubReviews();
       clearInterval(notificationInterval);
     };
-  }, [id]);
+  }, [id, showReviews]);
 
   const handleReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -119,18 +118,14 @@ export const ProductDetailPage = () => {
     
     setReviewSubmitting(true);
     try {
-      const reviewId = Math.random().toString(36).substring(2, 15);
-      const { error } = await supabase.from('reviews').insert({
-        id: reviewId,
-        product_id: id,
-        customer_name: newReview.name,
+      await addDoc(collection(db, 'reviews'), {
+        productId: id,
+        customerName: newReview.name,
         rating: newReview.rating,
         comment: newReview.comment,
         status: 'pending',
-        created_at: new Date().toISOString()
+        createdAt: Date.now()
       });
-      if (error) throw error;
-
       setReviewSuccess(true);
       setNewReview({ name: '', rating: 5, comment: '' });
     } catch (error) {
@@ -236,21 +231,6 @@ export const ProductDetailPage = () => {
 
                 {/* Stock Status Badge */}
                 <div className="flex flex-col items-end gap-2">
-                  {product.stockStatus === 'Out of Stock' && (
-                    <div className="bg-black text-white px-3 md:px-5 py-1.5 md:py-2.5 rounded-full font-bold text-[10px] md:text-xs uppercase tracking-widest shadow-xl pointer-events-auto">
-                      Out of Stock
-                    </div>
-                  )}
-                  {product.stockStatus === 'Limited' && (
-                    <div className="bg-blue-dark text-white px-3 md:px-5 py-1.5 md:py-2.5 rounded-full font-bold text-[10px] md:text-xs uppercase tracking-widest shadow-xl pointer-events-auto">
-                      Limited Stock
-                    </div>
-                  )}
-                  {product.stockStatus === 'In Stock' && (
-                    <div className="bg-green-600 text-white px-3 md:px-5 py-1.5 md:py-2.5 rounded-full font-bold text-[10px] md:text-xs uppercase tracking-widest shadow-xl pointer-events-auto">
-                      In Stock
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -386,8 +366,8 @@ export const ProductDetailPage = () => {
               <div className="flex items-center text-black font-bold text-sm bg-blue-light border-2 border-blue px-6 py-4 rounded-3xl">
                 <Zap size={20} className="mr-4 text-blue-dark" />
                 <div>
-                  <p>Only {product.stock || 5} left!</p>
-                  <p className="text-[10px] text-blue-dark/60 uppercase tracking-widest mt-0.5">Selling out fast</p>
+                  <p>Premium Quality</p>
+                  <p className="text-[10px] text-blue-dark/60 uppercase tracking-widest mt-0.5">Handcrafted Scent</p>
                 </div>
               </div>
               <div className="flex items-center text-black font-bold text-sm bg-blue-light border-2 border-blue px-6 py-4 rounded-3xl">
@@ -460,7 +440,16 @@ export const ProductDetailPage = () => {
                 <h3 className="text-4xl font-bold text-black tracking-tighter">Real Reviews from Real People</h3>
               </div>
               
-              {reviews.length === 0 ? (
+              {reviews.length === 0 && !showReviews ? (
+                <div className="bg-blue-light p-12 rounded-[3rem] border-2 border-blue text-center">
+                  <button 
+                    onClick={() => setShowReviews(true)}
+                    className="px-8 py-4 bg-black text-white font-black rounded-full hover:bg-blue transition-all uppercase tracking-widest text-sm"
+                  >
+                    Load Reviews ✨
+                  </button>
+                </div>
+              ) : reviews.length === 0 && showReviews ? (
                 <div className="bg-blue-light p-12 rounded-[3rem] border-2 border-blue text-center">
                   <p className="text-blue-dark/60 italic font-bold text-lg">No reviews yet. Be the first to share your experience!</p>
                 </div>

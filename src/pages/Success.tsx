@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { CheckCircle2, ShoppingBag, ArrowRight, Package, MapPin, Phone, User, Calendar, CreditCard } from 'lucide-react';
-import { supabase } from '../supabase';
+import { db } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 export const Success = () => {
   const location = useLocation();
@@ -13,14 +14,9 @@ export const Success = () => {
     if (orderId) {
       const fetchOrder = async () => {
         try {
-          const { data, error } = await supabase
-            .from('orders')
-            .select('*')
-            .eq('id', orderId)
-            .single();
-          
-          if (!error && data) {
-            setOrder(data);
+          const docSnap = await getDoc(doc(db, 'orders', orderId));
+          if (docSnap.exists()) {
+            setOrder({ id: docSnap.id, ...docSnap.data() });
           }
         } catch (error) {
           console.error("Error fetching order:", error);

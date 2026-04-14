@@ -16,22 +16,35 @@ import { Checkout } from './pages/Checkout';
 import { Success } from './pages/Success';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminLogin } from './pages/AdminLogin';
-import { supabase } from './supabase';
+import { auth } from './firebase';
+import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { MessageCircle, Phone } from 'lucide-react';
-import { SupabaseConnectionCheck } from './components/SupabaseConnectionCheck';
 
-const ADMIN_KEY = "Imran101";
+const ADMIN_EMAILS = ["abdulbasit162012@gmail.com", "infoperfumeenclave@gmail.com"];
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const token = localStorage.getItem('adminToken');
-    if (token === ADMIN_KEY) {
-      setIsAuthenticated(true);
-    } else {
-      setIsAuthenticated(false);
-    }
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user && user.email && ADMIN_EMAILS.includes(user.email)) {
+        setIsAuthenticated(true);
+      } else {
+        const token = localStorage.getItem('adminToken');
+        // Fallback for UI if token exists but auth is still loading or disconnected
+        // but strictly we should prefer Firebase Auth now.
+        if (token === 'google-auth-token' && user && user.email && ADMIN_EMAILS.includes(user.email)) {
+          setIsAuthenticated(true);
+        } else if (!user && token === 'google-auth-token') {
+          // Wait a bit for auth to initialize
+          setIsAuthenticated(null);
+        } else {
+          setIsAuthenticated(false);
+        }
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   if (isAuthenticated === null) return <div className="min-h-screen flex items-center justify-center bg-black"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div></div>;
@@ -47,7 +60,6 @@ export default function App() {
       <CartProvider>
         <Router>
           <div className="min-h-screen flex flex-col bg-black">
-            <SupabaseConnectionCheck />
             <Navbar />
             <main className="flex-grow">
               <Routes>

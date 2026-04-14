@@ -25,21 +25,6 @@ export const ProductCard: React.FC<{ product: Product, rating?: number, reviewCo
 
         {/* Stock Status Badge */}
         <div className="flex flex-col items-end gap-2">
-          {product.stockStatus === 'Out of Stock' && (
-            <div className="bg-black text-white text-[10px] uppercase tracking-widest font-bold px-3 py-1 rounded-full shadow-md pointer-events-auto">
-              Out of Stock
-            </div>
-          )}
-          {product.stockStatus === 'Limited' && (
-            <div className="bg-blue-dark text-white text-[10px] uppercase tracking-widest font-bold px-3 py-1 rounded-full shadow-md pointer-events-auto">
-              Limited Stock
-            </div>
-          )}
-          {product.stockStatus === 'In Stock' && (
-            <div className="bg-green-600 text-white text-[10px] uppercase tracking-widest font-bold px-3 py-1 rounded-full shadow-md pointer-events-auto">
-              In Stock
-            </div>
-          )}
         </div>
       </div>
       <div className="block relative aspect-[4/5] overflow-hidden bg-blue-light flex items-center justify-center">
@@ -47,7 +32,7 @@ export const ProductCard: React.FC<{ product: Product, rating?: number, reviewCo
           <img
             src={product.image}
             alt={product.name}
-            className={`w-full h-full object-contain transition-transform duration-700 group-hover:scale-105 ${product.stockStatus === 'Out of Stock' ? 'opacity-50 grayscale' : ''}`}
+            className="w-full h-full object-contain transition-transform duration-700 group-hover:scale-105"
             referrerPolicy="no-referrer"
           />
         ) : (
@@ -93,19 +78,15 @@ export const ProductCard: React.FC<{ product: Product, rating?: number, reviewCo
         )}
         <div className="mt-auto w-full">
           <div
-            className={`group/btn block w-full py-2 md:py-3.5 font-bold rounded-full transition-all border-2 relative overflow-hidden text-xs md:text-base ${product.stockStatus === 'Out of Stock' ? 'bg-gray-200 text-gray-500 border-transparent' : 'bg-black text-white border-transparent hover:bg-blue hover:text-white hover:border-black active:scale-95'}`}
+            className="group/btn block w-full py-2 md:py-3.5 font-bold rounded-full transition-all border-2 relative overflow-hidden text-xs md:text-base bg-black text-white border-transparent hover:bg-blue hover:text-white hover:border-black active:scale-95"
           >
             <span className="relative z-10 flex items-center justify-center gap-2">
-              {product.stockStatus === 'Out of Stock' ? 'Sold Out' : (
-                <>
-                  View Product
-                  <span
-                    className="hidden group-hover/btn:inline-block"
-                  >
-                    →
-                  </span>
-                </>
-              )}
+              View Product
+              <span
+                className="hidden group-hover/btn:inline-block"
+              >
+                →
+              </span>
             </span>
           </div>
         </div>

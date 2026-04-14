@@ -8,22 +8,16 @@ export interface Product {
   images?: string[];
   notes: string[];
   usage: string;
-  stock?: number;
-  totalStock?: number;
-  soldQuantity?: number;
-  lowStockThreshold?: number;
   views?: number;
-  stockStatus?: 'In Stock' | 'Limited' | 'Out of Stock';
   featured?: boolean;
   badge?: string;
   category?: string;
-  discount?: number;
-  createdAt?: number;
   sizePrices?: {
     '30ml'?: number;
     '50ml'?: number;
     '100ml'?: number;
   };
+  reviewCount?: number;
 }
 
 export interface CartItem extends Product {

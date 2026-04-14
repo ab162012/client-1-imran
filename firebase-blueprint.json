@@ -9,7 +9,8 @@
         "name": { "type": "string" },
         "price": { "type": "number" },
         "description": { "type": "string" },
-        "image": { "type": "string" }
+        "image": { "type": "string" },
+        "reviewCount": { "type": "number" }
       },
       "required": ["name", "price", "description", "image"]
     },
