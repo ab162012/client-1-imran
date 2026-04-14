@@ -16,8 +16,7 @@ import { Checkout } from './pages/Checkout';
 import { Success } from './pages/Success';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminLogin } from './pages/AdminLogin';
-import { auth } from './firebase';
-import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+import { supabase } from './supabase';
 import { MessageCircle, Phone } from 'lucide-react';
 
 const ADMIN_EMAILS = ["abdulbasit162012@gmail.com", "infoperfumeenclave@gmail.com"];
@@ -26,25 +25,25 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user && user.email && ADMIN_EMAILS.includes(user.email)) {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.email && ADMIN_EMAILS.includes(session.user.email)) {
         setIsAuthenticated(true);
       } else {
-        const token = localStorage.getItem('adminToken');
-        // Fallback for UI if token exists but auth is still loading or disconnected
-        // but strictly we should prefer Firebase Auth now.
-        if (token === 'google-auth-token' && user && user.email && ADMIN_EMAILS.includes(user.email)) {
-          setIsAuthenticated(true);
-        } else if (!user && token === 'google-auth-token') {
-          // Wait a bit for auth to initialize
-          setIsAuthenticated(null);
-        } else {
-          setIsAuthenticated(false);
-        }
+        setIsAuthenticated(false);
+      }
+    };
+    checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user?.email && ADMIN_EMAILS.includes(session.user.email)) {
+        setIsAuthenticated(true);
+      } else {
+        setIsAuthenticated(false);
       }
     });
 
-    return () => unsubscribe();
+    return () => subscription.unsubscribe();
   }, []);
 
   if (isAuthenticated === null) return <div className="min-h-screen flex items-center justify-center bg-black"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div></div>;

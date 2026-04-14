@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth } from '../firebase';
-import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from 'firebase/auth';
+import { supabase } from '../supabase';
 import { Lock, LogIn } from 'lucide-react';
 
 const ADMIN_EMAILS = ["abdulbasit162012@gmail.com", "infoperfumeenclave@gmail.com"];
@@ -12,34 +11,43 @@ export const AdminLogin = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user && user.email && ADMIN_EMAILS.includes(user.email)) {
-        localStorage.setItem('adminToken', 'google-auth-token');
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.email && ADMIN_EMAILS.includes(session.user.email)) {
+        localStorage.setItem('adminToken', 'supabase-auth-token');
+        navigate('/admin');
+      } else if (session?.user) {
+        // Logged in but not an admin
+        setError('Access Denied: You do not have admin privileges.');
+        await supabase.auth.signOut();
+      }
+    };
+    checkSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user?.email && ADMIN_EMAILS.includes(session.user.email)) {
+        localStorage.setItem('adminToken', 'supabase-auth-token');
         navigate('/admin');
       }
     });
-    return () => unsubscribe();
+
+    return () => subscription.unsubscribe();
   }, [navigate]);
 
   const handleGoogleLogin = async () => {
     setLoading(true);
     setError('');
     try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-
-      if (user.email && ADMIN_EMAILS.includes(user.email)) {
-        localStorage.setItem('adminToken', 'google-auth-token');
-        navigate('/admin');
-      } else {
-        setError('Access Denied: You do not have admin privileges.');
-        await auth.signOut();
-      }
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/admin-login`
+        }
+      });
+      if (error) throw error;
     } catch (err: any) {
       console.error('Login error:', err);
       setError(err.message || 'An error occurred during login.');
-    } finally {
       setLoading(false);
     }
   };

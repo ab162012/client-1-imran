@@ -1,5 +1,4 @@
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../firebase';
+import { supabase } from '../supabase';
 
 // --- ANTI-SPAM CONFIG ---
 const SUBMISSION_COOLDOWN_MS = 30 * 1000; // 30 seconds between orders
@@ -39,7 +38,9 @@ export const OrderService = {
       }
 
       // 3. Prepare Data
+      const id = Math.random().toString(36).substring(2, 15);
       const finalOrder = {
+        id,
         ...orderData,
         products: orderData.products.map(p => ({
           id: p.id,
@@ -49,20 +50,20 @@ export const OrderService = {
           size: p.selectedSize || '50ml'
         })),
         status: 'pending',
-        timestamp: serverTimestamp(), // Use server-side timestamp for security
-        createdAt: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        created_at: new Date().toISOString()
       };
 
-      // 4. Save to Firestore
-      const ordersRef = collection(db, 'orders');
-      const docRef = await addDoc(ordersRef, finalOrder);
+      // 4. Save to Supabase
+      const { error } = await supabase.from('orders').insert(finalOrder);
+      if (error) throw error;
       
       // Update last submission time
       lastSubmissionTime = Date.now();
 
       return {
         success: true,
-        orderId: docRef.id
+        orderId: id
       };
     } catch (error: any) {
       console.error('[OrderService] Order submission failed:', error);

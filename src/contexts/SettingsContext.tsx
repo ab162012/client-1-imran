@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { db, handleFirestoreError, OperationType } from '../firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { supabase } from '../supabase';
 import { SiteSettings } from '../types';
 
 interface SettingsContextType {
@@ -27,23 +26,29 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(doc(db, 'settings', 'general'), (docSnap) => {
-      if (docSnap.exists()) {
-        const newSettings = { ...defaultSettings, ...docSnap.data() } as SiteSettings;
-        setSettings(newSettings);
-        
-        // Apply primary color dynamically
-        // if (newSettings.primaryColor) {
-        //   document.documentElement.style.setProperty('--color-blue', newSettings.primaryColor);
-        // }
+    const fetchSettings = async () => {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('*')
+        .eq('id', 'general')
+        .single();
+      
+      if (!error && data) {
+        setSettings({ ...defaultSettings, ...data } as SiteSettings);
       }
       setLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'settings/general');
-      setLoading(false);
-    });
+    };
 
-    return () => unsubscribe();
+    fetchSettings();
+
+    const channel = supabase
+      .channel('settings-general')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings', filter: 'id=eq.general' }, fetchSettings)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   return (

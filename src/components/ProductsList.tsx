@@ -1,9 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, onSnapshot, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import { Product, Review } from '../types';
 import { ProductCard } from './Common';
 import { ProductService } from '../services/ProductService';
+import { supabase } from '../supabase';
 
 interface ProductsListProps {
   featuredOnly?: boolean;
@@ -15,7 +14,7 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
-  const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [currentPage, setCurrentPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [totalCount, setTotalCount] = useState<number | null>(null);
 
@@ -36,16 +35,16 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
     try {
       setLoading(true);
       
-      // Get total count using aggregation query (1 read)
+      // Get total count
       const count = await ProductService.getProductCount();
       setTotalCount(count);
 
-      // Fetch first page (20 items)
-      const result = await ProductService.getProductsPaginated(20);
+      // Fetch first page
+      const result = await ProductService.getProductsPaginated(20, 0);
       const processed = processProducts(result.products);
       
       setProducts(featuredOnly ? processed.filter(p => p.featured) : processed);
-      setLastDoc(result.lastDoc);
+      setCurrentPage(result.nextPage || 0);
       setHasMore(result.hasMore);
     } catch (error) {
       console.error("Error loading products:", error);
@@ -55,14 +54,14 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
   };
 
   const loadMore = async () => {
-    if (loadingMore || !lastDoc) return;
+    if (loadingMore || !hasMore) return;
     try {
       setLoadingMore(true);
-      const result = await ProductService.getProductsPaginated(20, lastDoc);
+      const result = await ProductService.getProductsPaginated(20, currentPage);
       const processed = processProducts(result.products);
       
       setProducts(prev => [...prev, ...(featuredOnly ? processed.filter(p => p.featured) : processed)]);
-      setLastDoc(result.lastDoc);
+      setCurrentPage(result.nextPage || currentPage);
       setHasMore(result.hasMore);
     } catch (error) {
       console.error("Error loading more products:", error);
@@ -74,18 +73,28 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
   useEffect(() => {
     fetchInitialProducts();
 
-    const unsubReviews = onSnapshot(collection(db, 'reviews'), (snapshot) => {
-      const reviewsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Review[];
-      setReviews(reviewsData);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'reviews');
-    });
+    const fetchReviews = async () => {
+      const { data, error } = await supabase
+        .from('reviews')
+        .select('*')
+        .eq('status', 'approved');
+      
+      if (!error && data) {
+        setReviews(data as Review[]);
+      }
+    };
+    fetchReviews();
+
+    // Supabase Realtime for reviews (optional but nice)
+    const channel = supabase
+      .channel('reviews-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews' }, () => {
+        fetchReviews();
+      })
+      .subscribe();
 
     return () => {
-      unsubReviews();
+      supabase.removeChannel(channel);
     };
   }, [featuredOnly]);
 

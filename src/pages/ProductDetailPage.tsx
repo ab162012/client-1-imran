@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { db, handleFirestoreError, OperationType } from '../firebase';
-import { doc, onSnapshot, collection, query, where, addDoc, updateDoc, increment, limit, getDocs } from 'firebase/firestore';
+import { supabase } from '../supabase';
 import { Product, Review } from '../types';
 import { useCart } from '../hooks/useCart';
 import { Minus, Plus, ShoppingBag, ArrowLeft, ShieldCheck, Zap, Eye, Star, TrendingUp, Heart, Clock, MapPin, CheckCircle2 } from 'lucide-react';
@@ -39,20 +38,30 @@ export const ProductDetailPage = () => {
 
     if (!id) return;
 
-    // Optimized Product Fetching using Cache
     const fetchProductData = async () => {
       try {
         setLoading(true);
-        const products = await ProductService.getProducts();
-        const foundProduct = products.find(p => p.id === id);
+        const { data: foundProduct, error } = await supabase
+          .from('products')
+          .select('*')
+          .eq('id', id)
+          .single();
         
-        if (foundProduct) {
-          setProduct(foundProduct);
+        if (!error && foundProduct) {
+          setProduct(foundProduct as Product);
           setMainImage(foundProduct.image);
           
-          // Set Bundles from cache
-          const featured = products.filter(p => p.featured && p.id !== id);
-          setBundles(featured.slice(0, 2));
+          // Set Bundles (Featured products)
+          const { data: featured } = await supabase
+            .from('products')
+            .select('*')
+            .eq('featured', true)
+            .neq('id', id)
+            .limit(2);
+          setBundles(featured as Product[] || []);
+
+          // Increment views
+          await supabase.from('products').update({ views: (foundProduct.views || 0) + 1 }).eq('id', id);
         } else {
           setProduct(null);
         }
@@ -65,14 +74,23 @@ export const ProductDetailPage = () => {
 
     fetchProductData();
 
-    // Real-time Reviews Listener (Keep this real-time as it's dynamic)
-    const q = query(collection(db, 'reviews'), where('productId', '==', id), where('status', '==', 'approved'));
-    const unsubReviews = onSnapshot(q, (snapshot) => {
-      const reviewsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Review[];
-      setReviews(reviewsData);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'reviews');
-    });
+    const fetchReviews = async () => {
+      const { data, error } = await supabase
+        .from('reviews')
+        .select('*')
+        .eq('product_id', id)
+        .eq('status', 'approved');
+      
+      if (!error && data) {
+        setReviews(data as Review[]);
+      }
+    };
+    fetchReviews();
+
+    const channel = supabase
+      .channel(`reviews-${id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews', filter: `product_id=eq.${id}` }, fetchReviews)
+      .subscribe();
 
     // Simulate Recent Purchase Notification
     const cities = ['Karachi', 'Lahore', 'Islamabad', 'Faisalabad', 'Rawalpindi', 'Multan', 'Gujranwala', 'Peshawar'];
@@ -89,20 +107,8 @@ export const ProductDetailPage = () => {
       if (Math.random() > 0.7) showNotification();
     }, 15000);
 
-    // Increment views (one-time)
-    const incrementViews = async () => {
-      try {
-        await updateDoc(doc(db, 'products', id), {
-          views: increment(1)
-        });
-      } catch (e) {
-        console.error("Failed to increment views", e);
-      }
-    };
-    incrementViews();
-
     return () => {
-      unsubReviews();
+      supabase.removeChannel(channel);
       clearInterval(notificationInterval);
     };
   }, [id]);
@@ -113,14 +119,18 @@ export const ProductDetailPage = () => {
     
     setReviewSubmitting(true);
     try {
-      await addDoc(collection(db, 'reviews'), {
-        productId: id,
-        customerName: newReview.name,
+      const reviewId = Math.random().toString(36).substring(2, 15);
+      const { error } = await supabase.from('reviews').insert({
+        id: reviewId,
+        product_id: id,
+        customer_name: newReview.name,
         rating: newReview.rating,
         comment: newReview.comment,
         status: 'pending',
-        createdAt: Date.now()
+        created_at: new Date().toISOString()
       });
+      if (error) throw error;
+
       setReviewSuccess(true);
       setNewReview({ name: '', rating: 5, comment: '' });
     } catch (error) {
