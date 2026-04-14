@@ -14,21 +14,42 @@ export const SupabaseConnectionCheck: React.FC = () => {
 
     const checkConnection = async () => {
       try {
-        // Try to fetch a single row from settings to verify connection
-        const { error } = await supabase.from('settings').select('id').limit(1);
+        // Try to fetch from 'products' first as it's the most critical table
+        const { error: productsError } = await supabase.from('products').select('id').limit(1);
+        
+        if (!productsError) {
+          setStatus('connected');
+          return;
+        }
+
+        // If products fails, try 'settings'
+        const { error: settingsError } = await supabase.from('settings').select('id').limit(1);
+        
+        if (!settingsError) {
+          setStatus('connected');
+          return;
+        }
+
+        // Analyze the error
+        const error = productsError || settingsError;
         
         if (error) {
           // If the error is "Failed to fetch", it's a network/URL issue
-          if (error.message?.includes('fetch') || error.message?.includes('NetworkError')) {
+          if (error.message?.includes('fetch') || error.message?.includes('NetworkError') || error.message?.includes('Failed to fetch')) {
             setStatus('error');
-            setErrorMessage('Could not connect to Supabase. Please check your URL and network connection.');
-          } else if (error.code === 'PGRST116') {
-            // This is "no rows found", which is fine for a connection test
-            setStatus('connected');
+            setErrorMessage('Could not connect to Supabase. This usually means the URL is incorrect or the network is blocked.');
+          } else if (error.code === 'PGRST116' || error.code === '42P01') {
+            // PGRST116: no rows found (fine)
+            // 42P01: table does not exist (means connection is OK but schema is missing)
+            if (error.code === '42P01') {
+              setStatus('error');
+              setErrorMessage('Connected to Supabase, but the "products" table was not found. Please check your database schema.');
+            } else {
+              setStatus('connected');
+            }
           } else {
-            // Other Supabase errors (like table not found)
             setStatus('error');
-            setErrorMessage(error.message);
+            setErrorMessage(`${error.message} (Code: ${error.code})`);
           }
         } else {
           setStatus('connected');

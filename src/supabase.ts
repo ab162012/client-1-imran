@@ -1,8 +1,14 @@
 /// <reference types="vite/client" />
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
+
+// Debugging (Safe)
+if (process.env.NODE_ENV !== 'production') {
+  console.log('[Supabase] URL detected:', supabaseUrl ? `Yes (${supabaseUrl.substring(0, 10)}...)` : 'No');
+  console.log('[Supabase] Key detected:', supabaseAnonKey ? 'Yes' : 'No');
+}
 
 const isPlaceholder = !supabaseUrl || supabaseUrl.includes('placeholder') || !supabaseAnonKey || supabaseAnonKey === 'placeholder';
 
