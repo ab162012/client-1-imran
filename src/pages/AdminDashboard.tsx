@@ -41,6 +41,9 @@ export const AdminDashboard = () => {
     price: 0,
     original_price: 0,
     stock: 0,
+    totalStock: 0,
+    soldQuantity: 0,
+    lowStockThreshold: 5,
     description: '',
     image: '',
     images: [],
@@ -48,6 +51,9 @@ export const AdminDashboard = () => {
     usage: '',
     stockStatus: 'In Stock',
     featured: false,
+    badge: '',
+    category: '',
+    discount: 0,
     sizePrices: {
       '30ml': 0,
       '50ml': 0,
@@ -211,9 +217,9 @@ export const AdminDashboard = () => {
 
       showSuccess('Product updated successfully');
       setEditingId(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating product:', error);
-      alert('Failed to update product');
+      alert(`Failed to update product: ${error.message || 'Unknown error'}`);
     }
   };
 
@@ -296,6 +302,9 @@ export const AdminDashboard = () => {
         price: 0,
         original_price: 0,
         stock: 0,
+        totalStock: 0,
+        soldQuantity: 0,
+        lowStockThreshold: 5,
         description: '',
         image: '',
         images: [],
@@ -303,6 +312,9 @@ export const AdminDashboard = () => {
         usage: '',
         stockStatus: 'In Stock',
         featured: false,
+        badge: '',
+        category: '',
+        discount: 0,
         sizePrices: {
           '30ml': 0,
           '50ml': 0,
@@ -313,9 +325,9 @@ export const AdminDashboard = () => {
       setEditingProduct(null);
       setActiveTab('products');
       setIsSidebarOpen(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error adding/updating product:', error);
-      alert('Failed to save product');
+      alert(`Failed to save product: ${error.message || 'Unknown error'}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -408,8 +420,9 @@ export const AdminDashboard = () => {
       const { error } = await supabase.from('settings').upsert({ id: 'general', ...settingsData });
       if (error) throw error;
       showSuccess('Settings updated successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving settings:', error);
+      alert(`Failed to save settings: ${error.message || 'Unknown error'}`);
     }
   };
 

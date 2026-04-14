@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Product } from '../types';
-import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { supabase } from '../supabase';
 import { ProductCard } from './Common';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -11,14 +10,30 @@ export const FeaturedCarousel = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
 
   useEffect(() => {
-    const q = query(collection(db, 'products'), where('featured', '==', true));
-    const unsub = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product));
-      setProducts(data);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'products');
-    });
-    return () => unsub();
+    const fetchFeatured = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('products')
+          .select('*')
+          .eq('featured', true);
+        
+        if (error) throw error;
+        setProducts(data as Product[]);
+      } catch (error) {
+        console.error("Error fetching featured products:", error);
+      }
+    };
+
+    fetchFeatured();
+
+    const channel = supabase
+      .channel('featured-products')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products', filter: 'featured=eq.true' }, fetchFeatured)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   useEffect(() => {

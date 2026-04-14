@@ -17,6 +17,8 @@ export interface Product {
   featured?: boolean;
   badge?: string;
   category?: string;
+  discount?: number;
+  createdAt?: number;
   sizePrices?: {
     '30ml'?: number;
     '50ml'?: number;
