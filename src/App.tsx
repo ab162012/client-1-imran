@@ -20,16 +20,27 @@ import { auth } from './firebase';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { MessageCircle, Phone } from 'lucide-react';
 
+const ADMIN_EMAILS = ["abdulbasit162012@gmail.com", "infoperfumeenclave@gmail.com"];
+
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      // We only allow users who are authenticated and NOT anonymous (admins)
-      if (user && !user.isAnonymous) {
+      if (user && user.email && ADMIN_EMAILS.includes(user.email)) {
         setIsAuthenticated(true);
       } else {
-        setIsAuthenticated(false);
+        const token = localStorage.getItem('adminToken');
+        // Fallback for UI if token exists but auth is still loading or disconnected
+        // but strictly we should prefer Firebase Auth now.
+        if (token === 'google-auth-token' && user && user.email && ADMIN_EMAILS.includes(user.email)) {
+          setIsAuthenticated(true);
+        } else if (!user && token === 'google-auth-token') {
+          // Wait a bit for auth to initialize
+          setIsAuthenticated(null);
+        } else {
+          setIsAuthenticated(false);
+        }
       }
     });
 

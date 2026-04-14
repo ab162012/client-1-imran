@@ -12,21 +12,36 @@ export const ProductCard: React.FC<{ product: Product, rating?: number, reviewCo
       to={`/product/${product.id}`}
       className="group bg-white rounded-3xl overflow-hidden border-2 border-blue transition-all hover:shadow-xl hover:shadow-blue/30 flex flex-col relative"
     >
-      {product.badge && (
-        <div className="absolute top-4 left-4 bg-black text-white text-[10px] uppercase tracking-widest font-bold px-3 py-1 rounded-full z-10 shadow-md">
-          {product.badge}
+      {/* Badges */}
+      <div className="absolute top-3 left-3 right-3 flex justify-between items-start z-10 pointer-events-none">
+        {/* Custom Badge (e.g., "New", "Sale") */}
+        <div>
+          {product.badge && (
+            <div className="bg-black text-white text-[10px] uppercase tracking-widest font-bold px-3 py-1 rounded-full shadow-md pointer-events-auto">
+              {product.badge}
+            </div>
+          )}
         </div>
-      )}
-      {product.stockStatus === 'Out of Stock' && (
-        <div className="absolute top-4 right-4 bg-black text-white text-xs font-bold px-3 py-1 rounded-full z-10 shadow-md">
-          Out of Stock
+
+        {/* Stock Status Badge */}
+        <div className="flex flex-col items-end gap-2">
+          {product.stockStatus === 'Out of Stock' && (
+            <div className="bg-black text-white text-[10px] uppercase tracking-widest font-bold px-3 py-1 rounded-full shadow-md pointer-events-auto">
+              Out of Stock
+            </div>
+          )}
+          {product.stockStatus === 'Limited' && (
+            <div className="bg-blue-dark text-white text-[10px] uppercase tracking-widest font-bold px-3 py-1 rounded-full shadow-md pointer-events-auto">
+              Limited Stock
+            </div>
+          )}
+          {product.stockStatus === 'In Stock' && (
+            <div className="bg-green-600 text-white text-[10px] uppercase tracking-widest font-bold px-3 py-1 rounded-full shadow-md pointer-events-auto">
+              In Stock
+            </div>
+          )}
         </div>
-      )}
-      {product.stockStatus === 'Limited' && (
-        <div className="absolute top-4 right-4 bg-blue-dark text-white text-xs font-bold px-3 py-1 rounded-full z-10 shadow-md">
-          Limited Stock
-        </div>
-      )}
+      </div>
       <div className="block relative aspect-[4/5] overflow-hidden bg-blue-light flex items-center justify-center">
         {product.image ? (
           <img

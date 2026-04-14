@@ -4,7 +4,6 @@ import { collection, onSnapshot, QueryDocumentSnapshot, DocumentData } from 'fir
 import { Product, Review } from '../types';
 import { ProductCard } from './Common';
 import { ProductService } from '../services/ProductService';
-import { ChevronRight, ChevronLeft, Loader2 } from 'lucide-react';
 
 interface ProductsListProps {
   featuredOnly?: boolean;
@@ -16,12 +15,11 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
-  const [totalCount, setTotalCount] = useState<number>(0);
   const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [hasMore, setHasMore] = useState(true);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
 
   const categories = ['All', 'Men', 'Unisex'];
-  const PAGE_SIZE = 20;
 
   const processProducts = useCallback((data: Product[]) => {
     return data.map(item => {
@@ -34,52 +32,38 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
     });
   }, []);
 
-  const loadInitialData = useCallback(async () => {
+  const fetchInitialProducts = async () => {
     try {
       setLoading(true);
       
-      // 1. Aggregation: Get total count in 1 read
-      const count = await ProductService.getTotalCount();
+      // Get total count using aggregation query (1 read)
+      const count = await ProductService.getProductCount();
       setTotalCount(count);
 
-      // 2. Pagination: Load first page
-      const { products: initialProducts, lastDoc: nextDoc } = await ProductService.getProductsPaginated(PAGE_SIZE);
+      // Fetch first page (20 items)
+      const result = await ProductService.getProductsPaginated(20);
+      const processed = processProducts(result.products);
       
-      const processed = processProducts(initialProducts);
       setProducts(featuredOnly ? processed.filter(p => p.featured) : processed);
-      setLastDoc(nextDoc);
-      setHasMore(initialProducts.length === PAGE_SIZE);
-
-      // 3. SWR: Background update for the first page
-      ProductService.getProductsSWR((freshData) => {
-        const freshProcessed = processProducts(freshData);
-        setProducts(prev => {
-          // Only update if we are on the first page and not filtered by pagination
-          if (lastDoc === null) {
-            return featuredOnly ? freshProcessed.filter(p => p.featured) : freshProcessed;
-          }
-          return prev;
-        });
-      });
-
+      setLastDoc(result.lastDoc);
+      setHasMore(result.hasMore);
     } catch (error) {
       console.error("Error loading products:", error);
     } finally {
       setLoading(false);
     }
-  }, [featuredOnly, processProducts]);
+  };
 
   const loadMore = async () => {
-    if (!lastDoc || loadingMore) return;
-    
+    if (loadingMore || !lastDoc) return;
     try {
       setLoadingMore(true);
-      const { products: nextProducts, lastDoc: nextDoc } = await ProductService.getProductsPaginated(PAGE_SIZE, lastDoc);
+      const result = await ProductService.getProductsPaginated(20, lastDoc);
+      const processed = processProducts(result.products);
       
-      const processed = processProducts(nextProducts);
       setProducts(prev => [...prev, ...(featuredOnly ? processed.filter(p => p.featured) : processed)]);
-      setLastDoc(nextDoc);
-      setHasMore(nextProducts.length === PAGE_SIZE);
+      setLastDoc(result.lastDoc);
+      setHasMore(result.hasMore);
     } catch (error) {
       console.error("Error loading more products:", error);
     } finally {
@@ -88,7 +72,7 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
   };
 
   useEffect(() => {
-    loadInitialData();
+    fetchInitialProducts();
 
     const unsubReviews = onSnapshot(collection(db, 'reviews'), (snapshot) => {
       const reviewsData = snapshot.docs.map(doc => ({
@@ -100,14 +84,15 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
       handleFirestoreError(error, OperationType.LIST, 'reviews');
     });
 
-    return () => unsubReviews();
-  }, [loadInitialData]);
+    return () => {
+      unsubReviews();
+    };
+  }, [featuredOnly]);
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 space-y-4">
-        <Loader2 className="animate-spin text-blue" size={48} />
-        <p className="text-blue-dark/60 font-bold animate-pulse">Loading Collection...</p>
+      <div className="flex justify-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue"></div>
       </div>
     );
   }
@@ -119,7 +104,7 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
   return (
     <div className="space-y-8">
       {!featuredOnly && (
-        <div className="flex flex-col items-center space-y-6">
+        <div className="flex flex-col items-center gap-6 mb-8">
           <div className="flex flex-wrap justify-center gap-4">
             {categories.map(cat => (
               <button
@@ -127,7 +112,7 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
                 onClick={() => setSelectedCategory(cat)}
                 className={`px-6 py-2 rounded-full font-bold text-sm uppercase tracking-widest border-2 transition-all ${
                   selectedCategory === cat 
-                    ? 'bg-black text-white border-black shadow-lg scale-105' 
+                    ? 'bg-black text-white border-black' 
                     : 'bg-white text-black border-blue hover:border-black'
                 }`}
               >
@@ -135,16 +120,18 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
               </button>
             ))}
           </div>
-          <p className="text-xs font-black text-blue-dark/40 uppercase tracking-[0.2em]">
-            Showing {filteredProducts.length} of {totalCount} Products
-          </p>
+          {totalCount !== null && (
+            <p className="text-xs font-bold text-blue-dark/40 uppercase tracking-widest">
+              Showing {products.length} of {totalCount} products
+            </p>
+          )}
         </div>
       )}
       
       {filteredProducts.length === 0 ? (
-        <div className="text-center py-20 text-blue-dark/60 font-bold bg-blue-light rounded-[2.5rem] border-2 border-blue p-8">
-          <p className="text-2xl mb-2 text-black">No products found 🛍️</p>
-          <p className="text-sm">Try another category or check back later.</p>
+        <div className="text-center py-12 text-blue-dark/60 font-bold bg-blue-light rounded-3xl border-2 border-blue p-8">
+          <p className="text-xl mb-2 text-black">No products available yet 🛍️</p>
+          <p className="text-sm">Check back soon for our premium collection.</p>
         </div>
       ) : (
         <>
@@ -167,20 +154,13 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
           </div>
 
           {hasMore && !featuredOnly && (
-            <div className="flex justify-center pt-12">
+            <div className="flex justify-center pt-8">
               <button
                 onClick={loadMore}
                 disabled={loadingMore}
-                className="group flex items-center space-x-2 px-10 py-4 bg-white border-2 border-blue text-black font-bold rounded-full hover:bg-blue hover:text-white transition-all shadow-xl disabled:opacity-50"
+                className="px-10 py-4 bg-white text-black font-bold rounded-full border-2 border-blue hover:border-black transition-all shadow-lg disabled:opacity-50"
               >
-                {loadingMore ? (
-                  <Loader2 className="animate-spin" size={20} />
-                ) : (
-                  <>
-                    <span>Load More Products</span>
-                    <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
-                  </>
-                )}
+                {loadingMore ? 'Loading...' : 'Load More Products'}
               </button>
             </div>
           )}

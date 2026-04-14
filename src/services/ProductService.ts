@@ -7,7 +7,9 @@ import {
   orderBy, 
   QueryDocumentSnapshot,
   DocumentData,
-  getCountFromServer
+  getCountFromServer,
+  getDocsFromCache,
+  getDocsFromServer
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Product } from '../types';
@@ -23,95 +25,65 @@ interface CachedData {
 
 export const ProductService = {
   /**
-   * Aggregation: Uses count() to get total products in 1 single read.
-   * Reduces cost significantly compared to fetching all documents.
+   * Optimized count aggregation.
+   * Reduces 1000+ reads to 1 single read.
    */
-  getTotalCount: async (): Promise<number> => {
+  getProductCount: async (): Promise<number> => {
     try {
       const coll = collection(db, 'products');
       const snapshot = await getCountFromServer(coll);
       return snapshot.data().count;
     } catch (error) {
-      console.error('[ProductService] Count error:', error);
+      console.error('[ProductService] Error getting count:', error);
       return 0;
     }
   },
 
   /**
-   * Stale-While-Revalidate Strategy:
-   * 1. Returns cached data from localStorage immediately (if available).
-   * 2. Fetches fresh data from Firestore in the background.
-   * 3. Updates the cache for the next visit.
+   * Fetches products with a Stale-While-Revalidate (SWR) strategy.
+   * Returns cached data immediately if available, then updates from server.
    */
-  getProductsSWR: async (onUpdate?: (products: Product[]) => void): Promise<Product[]> => {
-    const cached = localStorage.getItem(CACHE_KEY);
-    let initialProducts: Product[] = [];
+  getProducts: async (onUpdate?: (products: Product[]) => void): Promise<Product[]> => {
+    try {
+      const productsRef = collection(db, 'products');
+      const q = query(productsRef, orderBy('name'));
 
-    if (cached) {
-      const parsed: CachedData = JSON.parse(cached);
-      initialProducts = parsed.products;
-      
-      // If cache is still fresh, we might skip the background fetch
-      // but for true SWR, we usually revalidate anyway.
-      const isExpired = Date.now() - parsed.timestamp > CACHE_EXPIRATION_MS;
-      if (!isExpired) {
-        console.log('[ProductService] Cache fresh, returning early');
-        return initialProducts;
-      }
-    }
-
-    // Background Revalidation
-    const fetchFreshData = async () => {
+      // 1. Try to get from cache first (Stale)
+      let products: Product[] = [];
       try {
-        console.log('[ProductService] Revalidating from server...');
-        const productsRef = collection(db, 'products');
-        const q = query(productsRef, orderBy('name'));
-        const snapshot = await getDocs(q);
-        
-        const freshProducts = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...(doc.data() as any)
-        })) as Product[];
-
-        // Update Cache
-        const cacheData: CachedData = {
-          products: freshProducts,
-          timestamp: Date.now()
-        };
-        localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
-
-        if (onUpdate) onUpdate(freshProducts);
-      } catch (error) {
-        console.error('[ProductService] Revalidation failed:', error);
+        const cacheSnapshot = await getDocsFromCache(q);
+        if (!cacheSnapshot.empty) {
+          products = cacheSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...(doc.data() as any)
+          })) as Product[];
+          console.log('[ProductService] Serving from local cache (SWR)');
+          if (onUpdate) onUpdate(products);
+        }
+      } catch (e) {
+        console.log('[ProductService] Cache miss or not available');
       }
-    };
 
-    // If we have cached data, return it and fetch in background
-    if (initialProducts.length > 0) {
-      fetchFreshData();
-      return initialProducts;
+      // 2. Revalidate from server
+      const serverSnapshot = await getDocsFromServer(q);
+      const serverProducts = serverSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...(doc.data() as any)
+      })) as Product[];
+
+      console.log('[ProductService] Revalidated from server');
+      if (onUpdate) onUpdate(serverProducts);
+      
+      return serverProducts;
+    } catch (error) {
+      console.error('[ProductService] Error fetching products:', error);
+      throw error;
     }
-
-    // If no cache, we must wait for the first fetch
-    const productsRef = collection(db, 'products');
-    const q = query(productsRef, orderBy('name'));
-    const snapshot = await getDocs(q);
-    const products = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...(doc.data() as any)
-    })) as Product[];
-
-    localStorage.setItem(CACHE_KEY, JSON.stringify({
-      products,
-      timestamp: Date.now()
-    }));
-
-    return products;
   },
 
   /**
-   * Cursor-based Pagination:
-   * Loads only 20 products at a time to minimize read quota usage.
+   * Scalable cursor-based pagination.
+   * Loads only 20 products at a time.
    */
   getProductsPaginated: async (pageSize = 20, lastDoc: QueryDocumentSnapshot<DocumentData> | null = null) => {
     try {
@@ -124,8 +96,8 @@ export const ProductService = {
         q = query(productsRef, orderBy('name'), limit(pageSize));
       }
 
+      // Use getDocs which automatically handles cache/server based on persistence
       const snapshot = await getDocs(q);
-
       const products = snapshot.docs.map(doc => ({
         id: doc.id,
         ...(doc.data() as any)
@@ -133,16 +105,12 @@ export const ProductService = {
 
       return {
         products,
-        lastDoc: snapshot.docs[snapshot.docs.length - 1] || null
+        lastDoc: snapshot.docs[snapshot.docs.length - 1] || null,
+        hasMore: snapshot.docs.length === pageSize
       };
     } catch (error) {
       console.error('[ProductService] Pagination error:', error);
       throw error;
     }
-  },
-
-  // Legacy support for existing components
-  getProducts: async (forceRefresh = false): Promise<Product[]> => {
-    return ProductService.getProductsSWR();
   }
 };

@@ -15,6 +15,27 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Admin Key Validation API
+  app.post("/api/admin/login", (req, res) => {
+    try {
+      const { key } = req.body;
+      const ADMIN_KEY = process.env.ADMIN_KEY || "Usman101";
+
+      console.log(`[ADMIN LOGIN] Attempt with key: ${key ? "****" : "empty"}`);
+
+      if (key === ADMIN_KEY) {
+        console.log("[ADMIN LOGIN] Success");
+        res.json({ success: true, token: "demo-admin-token" });
+      } else {
+        console.log("[ADMIN LOGIN] Failed: Invalid Key");
+        res.status(401).json({ success: false, message: "Invalid Admin Key" });
+      }
+    } catch (error) {
+      console.error("[ADMIN LOGIN] Error:", error);
+      res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+  });
+
   // Order Notification API
   app.post("/api/order-notification", (req, res) => {
     const { orderId, customer, products, total, timestamp } = req.body;

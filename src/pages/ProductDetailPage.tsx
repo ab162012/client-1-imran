@@ -97,7 +97,6 @@ export const ProductDetailPage = () => {
         });
       } catch (e) {
         console.error("Failed to increment views", e);
-        handleFirestoreError(e, OperationType.UPDATE, `products/${id}`);
       }
     };
     incrementViews();
@@ -214,12 +213,36 @@ export const ProductDetailPage = () => {
                 <ShoppingBag className="text-blue-dark" size={120} />
               )}
               
-              {/* Floating Badge */}
-              {(product.badge || 'Premium Edition') && (
-                <div className="absolute top-4 left-4 md:top-8 md:left-8 bg-black text-white px-3 md:px-5 py-1.5 md:py-2.5 rounded-full font-bold text-[10px] md:text-xs uppercase tracking-widest shadow-xl z-10">
-                  {product.badge || 'Premium Edition'}
+              {/* Floating Badges */}
+              <div className="absolute top-4 left-4 right-4 md:top-8 md:left-8 md:right-8 flex justify-between items-start z-10 pointer-events-none">
+                {/* Custom Badge */}
+                <div>
+                  {(product.badge || 'Premium Edition') && (
+                    <div className="bg-black text-white px-3 md:px-5 py-1.5 md:py-2.5 rounded-full font-bold text-[10px] md:text-xs uppercase tracking-widest shadow-xl pointer-events-auto">
+                      {product.badge || 'Premium Edition'}
+                    </div>
+                  )}
                 </div>
-              )}
+
+                {/* Stock Status Badge */}
+                <div className="flex flex-col items-end gap-2">
+                  {product.stockStatus === 'Out of Stock' && (
+                    <div className="bg-black text-white px-3 md:px-5 py-1.5 md:py-2.5 rounded-full font-bold text-[10px] md:text-xs uppercase tracking-widest shadow-xl pointer-events-auto">
+                      Out of Stock
+                    </div>
+                  )}
+                  {product.stockStatus === 'Limited' && (
+                    <div className="bg-blue-dark text-white px-3 md:px-5 py-1.5 md:py-2.5 rounded-full font-bold text-[10px] md:text-xs uppercase tracking-widest shadow-xl pointer-events-auto">
+                      Limited Stock
+                    </div>
+                  )}
+                  {product.stockStatus === 'In Stock' && (
+                    <div className="bg-green-600 text-white px-3 md:px-5 py-1.5 md:py-2.5 rounded-full font-bold text-[10px] md:text-xs uppercase tracking-widest shadow-xl pointer-events-auto">
+                      In Stock
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
             
             {/* Thumbnails */}

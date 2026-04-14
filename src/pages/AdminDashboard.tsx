@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
-import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, setDoc, onSnapshot } from 'firebase/firestore';
-import { signOut } from 'firebase/auth';
+import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, setDoc, onSnapshot, getCountFromServer } from 'firebase/firestore';
 import { Product, Review, SiteSettings } from '../types';
 import { useSettings } from '../contexts/SettingsContext';
 import { 
@@ -9,20 +8,22 @@ import {
   LayoutDashboard, PlusCircle, Settings, LogOut, Image as ImageIcon, Trash2, Star, Menu, MessageSquare, LayoutTemplate, CheckCircle2, TrendingUp, BarChart3
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { ProductService } from '../services/ProductService';
 
 export const AdminDashboard = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'add-product' | 'inventory' | 'orders' | 'reviews' | 'research' | 'logo' | 'banner' | 'settings' | 'admins'>('dashboard');
+  const [productCount, setProductCount] = useState(0);
+  const [orderCount, setOrderCount] = useState(0);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'add-product' | 'inventory' | 'orders' | 'reviews' | 'research' | 'logo' | 'banner' | 'settings'>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
   const [newReviewForm, setNewReviewForm] = useState({ productId: '', customerName: '', rating: 5, comment: '', verified: true });
   const [isAddingReview, setIsAddingReview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'product' | 'order' | 'review' | 'user' } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'product' | 'order' | 'review' } | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const { settings: globalSettings } = useSettings();
   const navigate = useNavigate();
@@ -64,16 +65,10 @@ export const AdminDashboard = () => {
     heroProductId: ''
   });
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const showSuccess = (msg: string) => {
     setSuccessMessage(msg);
     setTimeout(() => setSuccessMessage(null), 3000);
-  };
-
-  const showError = (msg: string) => {
-    setErrorMessage(msg);
-    setTimeout(() => setErrorMessage(null), 5000);
   };
 
   useEffect(() => {
@@ -83,22 +78,26 @@ export const AdminDashboard = () => {
   }, [globalSettings]);
 
   useEffect(() => {
-    const unsubAuth = auth.onAuthStateChanged((user) => {
-      if (!user) {
-        navigate('/admin-login');
-      }
-    });
+    const fetchCounts = async () => {
+      try {
+        const pCount = await ProductService.getProductCount();
+        setProductCount(pCount);
 
-    console.log("Current User:", auth.currentUser?.email);
-    console.log("Is Authenticated:", !!auth.currentUser);
-    
+        const ordersColl = collection(db, 'orders');
+        const oCount = await getCountFromServer(ordersColl);
+        setOrderCount(oCount.data().count);
+      } catch (error) {
+        console.error("Error fetching dashboard counts:", error);
+      }
+    };
+    fetchCounts();
+
     const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
       const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Product[];
       setProducts(productsData);
       setLoading(false);
     }, (error) => {
-      console.error("Products fetch error:", error);
-      showError(`Failed to load products: ${error.message}`);
+      handleFirestoreError(error, OperationType.LIST, 'products');
       setLoading(false);
     });
 
@@ -106,65 +105,26 @@ export const AdminDashboard = () => {
       const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setOrders(ordersData);
     }, (error) => {
-      console.error("Orders fetch error:", error);
-      showError(`Failed to load orders: ${error.message}`);
+      handleFirestoreError(error, OperationType.LIST, 'orders');
     });
 
     const unsubReviews = onSnapshot(collection(db, 'reviews'), (snapshot) => {
       const reviewsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Review[];
       setReviews(reviewsData);
     }, (error) => {
-      console.error("Reviews fetch error:", error);
-      showError(`Failed to load reviews: ${error.message}`);
-    });
-
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-      const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setUsers(usersData);
-    }, (error) => {
-      console.error("Users fetch error:", error);
-      // Don't show error for users if it fails (might not have permissions yet)
+      handleFirestoreError(error, OperationType.LIST, 'reviews');
     });
 
     return () => {
-      unsubAuth();
       unsubProducts();
       unsubOrders();
       unsubReviews();
-      unsubUsers();
     };
   }, []);
 
   const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      navigate('/admin-login');
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
-  };
-
-  // --- User Actions ---
-  const handleUpdateUserRole = async (userId: string, role: 'admin' | 'customer') => {
-    try {
-      await updateDoc(doc(db, 'users', userId), { role });
-      showSuccess(`User role updated to ${role}`);
-    } catch (error: any) {
-      console.error('Update user role error:', error);
-      showError(`Failed to update user role: ${error.message}`);
-    }
-  };
-
-  const handleDeleteUser = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'users', id));
-      showSuccess('User record deleted successfully');
-      setDeleteConfirm(null);
-    } catch (error: any) {
-      console.error('Delete user error:', error);
-      showError(`Failed to delete user: ${error.message}`);
-      setDeleteConfirm(null);
-    }
+    localStorage.removeItem('adminToken');
+    navigate('/admin-login');
   };
 
   // --- Image Handling ---
@@ -250,14 +210,11 @@ export const AdminDashboard = () => {
       );
 
       const docRef = doc(db, 'products', editingId);
-      console.log("Attempting to update product:", editingId, productData);
       await updateDoc(docRef, productData);
       showSuccess('Product updated successfully');
       setEditingId(null);
-    } catch (error: any) {
-      console.error('Save error details:', error);
-      handleFirestoreError(error, OperationType.UPDATE, 'products');
-      showError(`Failed to update product: ${error.message}`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `products/${editingId}`);
     }
   };
 
@@ -266,10 +223,8 @@ export const AdminDashboard = () => {
       await deleteDoc(doc(db, 'products', id));
       showSuccess('Product deleted successfully');
       setDeleteConfirm(null);
-    } catch (error: any) {
-      console.error('Delete product error:', error);
-      showError(`Failed to delete product: ${error.message}`);
-      setDeleteConfirm(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `products/${id}`);
     }
   };
 
@@ -278,10 +233,8 @@ export const AdminDashboard = () => {
       await deleteDoc(doc(db, 'orders', id));
       showSuccess('Order deleted successfully');
       setDeleteConfirm(null);
-    } catch (error: any) {
-      console.error('Delete order error:', error);
-      showError(`Failed to delete order: ${error.message}`);
-      setDeleteConfirm(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `orders/${id}`);
     }
   };
 
@@ -290,10 +243,8 @@ export const AdminDashboard = () => {
       await deleteDoc(doc(db, 'reviews', id));
       showSuccess('Review deleted successfully');
       setDeleteConfirm(null);
-    } catch (error: any) {
-      console.error('Delete review error:', error);
-      showError(`Failed to delete review: ${error.message}`);
-      setDeleteConfirm(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `reviews/${id}`);
     }
   };
 
@@ -318,19 +269,14 @@ export const AdminDashboard = () => {
       }).filter(([_, v]) => v !== undefined)
     );
 
-    console.log("Current User for Add Product:", auth.currentUser?.email);
-    console.log("Auth State:", !!auth.currentUser);
-
     try {
       if (editingProduct) {
         // Update existing product
         const docRef = doc(db, 'products', editingProduct.id);
-        console.log("Attempting to update product (full edit):", editingProduct.id, productData);
         await updateDoc(docRef, productData);
         showSuccess('Product updated successfully');
       } else {
         // Add new product
-        console.log("Attempting to add new product to collection 'products':", productData);
         await addDoc(collection(db, 'products'), productData);
         showSuccess('Product added successfully');
       }
@@ -359,10 +305,8 @@ export const AdminDashboard = () => {
       setEditingProduct(null);
       setActiveTab('products');
       setIsSidebarOpen(false);
-    } catch (error: any) {
-      console.error('Add product error:', error);
-      handleFirestoreError(error, editingProduct ? OperationType.UPDATE : OperationType.CREATE, 'products');
-      showError(`Failed to save product: ${error.message}`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'products');
     } finally {
       setIsSubmitting(false);
     }
@@ -404,9 +348,8 @@ export const AdminDashboard = () => {
   const handleOrderStatus = async (id: string, status: string) => {
     try {
       await updateDoc(doc(db, 'orders', id), { status });
-    } catch (error: any) {
-      console.error('Order status update error:', error);
-      showError(`Failed to update order status: ${error.message}`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `orders/${id}`);
     }
   };
 
@@ -414,9 +357,8 @@ export const AdminDashboard = () => {
   const handleReviewStatus = async (id: string, status: 'approved' | 'rejected') => {
     try {
       await updateDoc(doc(db, 'reviews', id), { status });
-    } catch (error: any) {
-      console.error('Review status update error:', error);
-      showError(`Failed to update review status: ${error.message}`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `reviews/${id}`);
     }
   };
 
@@ -438,9 +380,8 @@ export const AdminDashboard = () => {
       setNewReviewForm({ productId: '', customerName: '', rating: 5, comment: '', verified: true });
       setIsAddingReview(false);
       alert('Verified review added successfully!');
-    } catch (error: any) {
-      console.error('Add manual review error:', error);
-      showError(`Failed to add review: ${error.message}`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'reviews');
     }
   };
 
@@ -450,12 +391,10 @@ export const AdminDashboard = () => {
       const settingsData = Object.fromEntries(
         Object.entries(siteSettingsForm).filter(([_, v]) => v !== undefined)
       );
-      console.log("Attempting to save settings:", settingsData);
       await setDoc(doc(db, 'settings', 'general'), settingsData);
       showSuccess('Settings updated successfully');
-    } catch (error: any) {
-      console.error('Save settings error details:', error);
-      showError(`Failed to update settings: ${error.message}`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'settings/site');
     }
   };
 
@@ -474,7 +413,6 @@ export const AdminDashboard = () => {
     { id: 'inventory', icon: BarChart3, label: 'Inventory' },
     { id: 'orders', icon: ShoppingBag, label: 'Orders' },
     { id: 'reviews', icon: MessageSquare, label: 'Reviews' },
-    { id: 'admins', icon: LogOut, label: 'Admins' },
     { id: 'research', icon: TrendingUp, label: 'Product Research' },
     { id: 'settings', icon: Settings, label: 'Site Settings' },
     { id: 'logo', icon: ImageIcon, label: 'Logo Manager' },
@@ -504,7 +442,6 @@ export const AdminDashboard = () => {
                   if (deleteConfirm.type === 'product') handleDeleteProduct(deleteConfirm.id);
                   else if (deleteConfirm.type === 'order') handleDeleteOrder(deleteConfirm.id);
                   else if (deleteConfirm.type === 'review') handleDeleteReview(deleteConfirm.id);
-                  else if (deleteConfirm.type === 'user') handleDeleteUser(deleteConfirm.id);
                 }}
                 className="w-full py-4 bg-red-500 text-white font-bold rounded-2xl hover:bg-red-600 transition-colors"
               >
@@ -659,16 +596,6 @@ export const AdminDashboard = () => {
           </div>
         </div>
       )}
-
-      {/* Error Message Toast */}
-      {errorMessage && (
-        <div className="fixed bottom-8 right-8 z-50 animate-in fade-in slide-in-from-bottom-4">
-          <div className="bg-white text-red-600 px-6 py-4 rounded-2xl shadow-2xl flex items-center space-x-3 border-2 border-red-500">
-            <X className="text-red-500" size={20} />
-            <span className="font-bold">{errorMessage}</span>
-          </div>
-        </div>
-      )}
       
       {/* Mobile Sidebar Toggle */}
       <div className="md:hidden fixed bottom-6 right-6 z-50">
@@ -735,7 +662,7 @@ export const AdminDashboard = () => {
                   <span className="p-2 bg-white text-black rounded-lg border-2 border-blue"><Package size={20} /></span>
                   <span className="text-xs font-bold text-blue-dark/70">Products</span>
                 </div>
-                <p className="text-2xl font-black text-black">{products.length}</p>
+                <p className="text-2xl font-black text-black">{productCount || products.length}</p>
                 <p className="text-xs font-medium text-blue-dark/60 mt-1">Total items in catalog</p>
               </div>
               
@@ -744,7 +671,7 @@ export const AdminDashboard = () => {
                   <span className="p-2 bg-white text-black rounded-lg border-2 border-blue"><ShoppingBag size={20} /></span>
                   <span className="text-xs font-bold text-blue-dark/70">Orders</span>
                 </div>
-                <p className="text-2xl font-black text-black">{orders.length}</p>
+                <p className="text-2xl font-black text-black">{orderCount || orders.length}</p>
                 <p className="text-xs font-medium text-blue-dark/60 mt-1">Total lifetime orders</p>
               </div>
 
@@ -1457,107 +1384,6 @@ export const AdminDashboard = () => {
                   </tbody>
                 </table>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* ADMINS TAB */}
-        {activeTab === 'admins' && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h1 className="text-2xl font-bold text-black">Manage Administrators</h1>
-              <div className="text-sm font-medium text-blue-dark/60">
-                Total Users: {users.length}
-              </div>
-            </div>
-
-            <div className="bg-white rounded-3xl border-2 border-blue shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead className="bg-blue-light/50 border-b-2 border-blue">
-                    <tr className="text-xs font-black text-blue-dark/60 uppercase tracking-wider">
-                      <th className="p-4">User</th>
-                      <th className="p-4">Role</th>
-                      <th className="p-4">Joined</th>
-                      <th className="p-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-blue/20">
-                    {users.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="p-8 text-center text-blue-dark/40 font-bold">
-                          No users found in the database.
-                        </td>
-                      </tr>
-                    ) : (
-                      users.map((user) => (
-                        <tr key={user.id} className="hover:bg-blue-light/30 transition-colors">
-                          <td className="p-4">
-                            <div className="flex items-center space-x-3">
-                              <div className="w-10 h-10 bg-blue-light border-2 border-blue rounded-full flex items-center justify-center text-black font-bold text-xs">
-                                {user.displayName?.charAt(0) || user.email?.charAt(0) || '?'}
-                              </div>
-                              <div>
-                                <p className="text-sm font-bold text-black">{user.displayName || 'Anonymous'}</p>
-                                <p className="text-xs font-medium text-blue-dark/60">{user.email}</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="p-4">
-                            <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase border ${
-                              user.role === 'admin' 
-                                ? 'bg-purple-100 text-purple-800 border-purple-200' 
-                                : 'bg-blue-100 text-blue-800 border-blue-200'
-                            }`}>
-                              {user.role}
-                            </span>
-                          </td>
-                          <td className="p-4 text-xs font-medium text-blue-dark/60">
-                            {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}
-                          </td>
-                          <td className="p-4 text-right">
-                            <div className="flex justify-end space-x-2">
-                              {user.role === 'admin' ? (
-                                <button
-                                  onClick={() => handleUpdateUserRole(user.id, 'customer')}
-                                  className="p-2 text-blue-dark hover:bg-blue-light rounded-lg transition-colors border-2 border-transparent hover:border-blue"
-                                  title="Demote to Customer"
-                                >
-                                  <ShoppingBag size={18} />
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => handleUpdateUserRole(user.id, 'admin')}
-                                  className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors border-2 border-transparent hover:border-purple-200"
-                                  title="Promote to Admin"
-                                >
-                                  <PlusCircle size={18} />
-                                </button>
-                              )}
-                              <button
-                                onClick={() => setDeleteConfirm({ id: user.id, type: 'user' })}
-                                className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors border-2 border-transparent hover:border-red-200"
-                                title="Delete User Record"
-                              >
-                                <Trash2 size={18} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="bg-blue-light/30 p-6 rounded-3xl border-2 border-blue border-dashed">
-              <h3 className="text-sm font-bold text-black mb-2">How to add new admins:</h3>
-              <ul className="text-xs text-blue-dark/70 space-y-2 list-disc pl-4">
-                <li>Admins must first create an account or log in.</li>
-                <li>Once they appear in this list, you can promote them using the <PlusCircle size={12} className="inline" /> button.</li>
-                <li>The master account <code className="bg-white px-1 rounded border border-blue">admin@perfumeenclave.com</code> always has access.</li>
-              </ul>
             </div>
           </div>
         )}

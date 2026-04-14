@@ -1,63 +1,44 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth, db } from '../firebase';
-import { signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { Lock, Mail, Key, Loader2 } from 'lucide-react';
+import { auth } from '../firebase';
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from 'firebase/auth';
+import { Lock, LogIn } from 'lucide-react';
+
+const ADMIN_EMAILS = ["abdulbasit162012@gmail.com", "infoperfumeenclave@gmail.com"];
 
 export const AdminLogin = () => {
-  const [email, setEmail] = useState('admin@perfumeenclave.com');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user && !user.isAnonymous) {
+      if (user && user.email && ADMIN_EMAILS.includes(user.email)) {
+        localStorage.setItem('adminToken', 'google-auth-token');
         navigate('/admin');
       }
     });
     return () => unsubscribe();
   }, [navigate]);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGoogleLogin = async () => {
     setLoading(true);
     setError('');
-    
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-      
-      // Sync user to Firestore users collection
-      const userRef = doc(db, 'users', user.uid);
-      const userSnap = await getDoc(userRef);
-      
-      if (!userSnap.exists()) {
-        await setDoc(userRef, {
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName || user.email?.split('@')[0],
-          role: 'customer', // Default role, can be promoted by another admin
-          createdAt: Date.now()
-        });
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      if (user.email && ADMIN_EMAILS.includes(user.email)) {
+        localStorage.setItem('adminToken', 'google-auth-token');
+        navigate('/admin');
+      } else {
+        setError('Access Denied: You do not have admin privileges.');
+        await auth.signOut();
       }
-      
-      // Success will be handled by onAuthStateChanged
     } catch (err: any) {
       console.error('Login error:', err);
-      let message = 'Invalid email or password';
-      
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        message = 'Invalid Admin Credentials. Please check your email and password.';
-      } else if (err.code === 'auth/too-many-requests') {
-        message = 'Too many failed attempts. Please try again later.';
-      } else if (err.code === 'auth/network-request-failed') {
-        message = 'Network error. Please check your internet connection.';
-      }
-      
-      setError(message);
+      setError(err.message || 'An error occurred during login.');
     } finally {
       setLoading(false);
     }
@@ -72,7 +53,7 @@ export const AdminLogin = () => {
           </div>
           <h1 className="text-2xl font-medium text-white">Admin Access</h1>
           <p className="text-white/60 text-sm mt-2 text-center">
-            Sign in with your admin credentials to manage your store.
+            Sign in with your authorized Google account.
           </p>
         </div>
 
@@ -82,57 +63,24 @@ export const AdminLogin = () => {
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-white/70 mb-2">Admin Email</label>
-            <div className="relative">
-              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" size={20} />
-              <input
-                type="email"
-                required
-                placeholder="admin@example.com"
-                className="w-full pl-12 pr-4 py-4 border border-white bg-black text-white rounded-2xl focus:ring-2 focus:ring-white outline-none transition-all"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-white/70 mb-2">Password / Access Key</label>
-            <div className="relative">
-              <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" size={20} />
-              <input
-                type="password"
-                required
-                placeholder="Enter Password"
-                className="w-full pl-12 pr-4 py-4 border border-white bg-black text-white rounded-2xl focus:ring-2 focus:ring-white outline-none transition-all"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-          </div>
-
+        <div className="space-y-6">
           <button
-            type="submit"
+            onClick={handleGoogleLogin}
             disabled={loading}
-            className="w-full py-4 bg-white text-black font-bold rounded-2xl hover:bg-blue-light transition-all shadow-lg shadow-white/20 disabled:opacity-50 flex items-center justify-center space-x-2"
+            className="w-full py-4 bg-white text-black font-medium rounded-2xl hover:bg-gray-200 transition-all shadow-lg shadow-white/20 disabled:opacity-50 flex items-center justify-center gap-3"
           >
             {loading ? (
-              <>
-                <Loader2 className="animate-spin" size={20} />
-                <span>Verifying...</span>
-              </>
+              'Verifying...'
             ) : (
-              <span>Access Dashboard</span>
+              <>
+                <LogIn size={20} />
+                Sign in with Google
+              </>
             )}
           </button>
-        </form>
-
-        <div className="mt-8 pt-6 border-t border-white/10 text-center">
-          <p className="text-white/40 text-xs">
-            Note: Ensure Email/Password authentication is enabled in your Firebase Console.
-            Authorized Admins: admin@perfumeenclave.com or any account with the 'admin' role.
+          
+          <p className="text-white/40 text-xs text-center">
+            Only authorized administrators can access this area.
           </p>
         </div>
       </div>
