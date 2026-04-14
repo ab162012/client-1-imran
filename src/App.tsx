@@ -18,6 +18,7 @@ import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminLogin } from './pages/AdminLogin';
 import { supabase } from './supabase';
 import { MessageCircle, Phone } from 'lucide-react';
+import { SupabaseConnectionCheck } from './components/SupabaseConnectionCheck';
 
 const ADMIN_KEY = "Imran101";
 
@@ -46,6 +47,7 @@ export default function App() {
       <CartProvider>
         <Router>
           <div className="min-h-screen flex flex-col bg-black">
+            <SupabaseConnectionCheck />
             <Navbar />
             <main className="flex-grow">
               <Routes>

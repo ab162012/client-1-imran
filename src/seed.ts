@@ -1,7 +1,12 @@
-import { supabase } from './supabase';
+import { supabase, isSupabaseConfigured } from './supabase';
 import { PRODUCTS } from './constants';
 
 export const seedProducts = async () => {
+  if (!isSupabaseConfigured()) {
+    console.warn('[Seed] Skipping seeding: Supabase is not configured.');
+    return;
+  }
+
   try {
     const { count, error: countError } = await supabase
       .from('products')
