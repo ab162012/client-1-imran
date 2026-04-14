@@ -9,6 +9,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { ProductService } from '../services/ProductService';
 
+import { StorageService } from '../services/StorageService';
+
 export const AdminDashboard = () => {
   const [productCount, setProductCount] = useState(0);
   const [orderCount, setOrderCount] = useState(0);
@@ -22,6 +24,7 @@ export const AdminDashboard = () => {
   const [isAddingReview, setIsAddingReview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'product' | 'order' | 'review' } | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const { settings: globalSettings } = useSettings();
@@ -129,18 +132,22 @@ export const AdminDashboard = () => {
   };
 
   // --- Image Handling ---
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, callback: (base64: string) => void) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, callback: (url: string) => void) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        callback(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      setIsUploading(true);
+      try {
+        const url = await StorageService.uploadFile(file);
+        callback(url);
+      } catch (error) {
+        alert('Failed to upload image. Make sure you have a "products" bucket in Supabase Storage set to public.');
+      } finally {
+        setIsUploading(false);
+      }
     }
   };
 
-  const handleMultipleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMultipleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
     
     // Basic validation
@@ -149,33 +156,22 @@ export const AdminDashboard = () => {
       alert('Some files were not images and were skipped.');
     }
     
-    // Size validation (limit to 500KB per image to avoid Firestore document limits)
-    const MAX_SIZE = 500 * 1024;
-    const oversizedFiles = validFiles.filter(file => file.size > MAX_SIZE);
-    if (oversizedFiles.length > 0) {
-      alert('Some images are too large (max 500KB). Please compress them.');
-      return;
-    }
-
-    const promises = validFiles.map(file => {
-      return new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-    });
-
-    Promise.all(promises).then(base64Images => {
+    setIsUploading(true);
+    try {
+      const uploadPromises = validFiles.map(file => StorageService.uploadFile(file));
+      const urls = await Promise.all(uploadPromises);
+      
       setNewProduct(prev => ({
         ...prev,
-        images: [...(prev.images || []), ...base64Images],
-        image: prev.image || base64Images[0] // Set first image as main if not set
+        images: [...(prev.images || []), ...urls],
+        image: prev.image || urls[0] // Set first image as main if not set
       }));
-    }).catch(err => {
-      console.error('Error processing images:', err);
-      alert('Failed to process images. Please try again.');
-    });
+    } catch (error) {
+      console.error('Error uploading images:', error);
+      alert('Failed to upload some images. Make sure you have a "products" bucket in Supabase Storage set to public.');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const removeImage = (index: number) => {
@@ -968,7 +964,10 @@ export const AdminDashboard = () => {
               <div className="space-y-2">
                 <label className="text-sm font-bold text-blue-dark/70">Product Images (Upload Multiple)</label>
                 <div className="flex flex-col gap-4">
-                  <input type="file" accept="image/*" multiple onChange={handleMultipleImageUpload} className="block w-full text-sm text-blue-dark/60 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-blue-light file:text-black hover:file:bg-blue hover:file:text-white transition-colors" />
+                  <div className="flex items-center gap-4">
+                    <input type="file" accept="image/*" multiple onChange={handleMultipleImageUpload} disabled={isUploading} className="block w-full text-sm text-blue-dark/60 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-blue-light file:text-black hover:file:bg-blue hover:file:text-white transition-colors disabled:opacity-50" />
+                    {isUploading && <Loader2 className="animate-spin text-blue-dark" size={20} />}
+                  </div>
                   <p className="text-xs font-medium text-blue-dark/60">First image will be used as the main display image.</p>
                   
                   {newProduct.images && newProduct.images.length > 0 && (
@@ -1421,7 +1420,10 @@ export const AdminDashboard = () => {
                 </div>
                 <div className="flex-1 space-y-4 w-full">
                   <h3 className="font-bold text-black">Update Website Logo</h3>
-                  <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, (base64) => setSiteSettingsForm({...siteSettingsForm, logo: base64}))} className="block w-full text-sm text-blue-dark/60 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-blue-light file:text-black hover:file:bg-blue hover:file:text-white transition-colors" />
+                  <div className="flex items-center gap-4">
+                    <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, (url) => setSiteSettingsForm({...siteSettingsForm, logo: url}))} disabled={isUploading} className="block w-full text-sm text-blue-dark/60 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-blue-light file:text-black hover:file:bg-blue hover:file:text-white transition-colors disabled:opacity-50" />
+                    {isUploading && <Loader2 className="animate-spin text-blue-dark" size={20} />}
+                  </div>
                   <p className="text-xs font-medium text-blue-dark/60 leading-relaxed">Upload a high-quality transparent PNG. This logo will appear in the navigation bar and footer across the entire website.</p>
                   
                   <button onClick={handleSaveSettings} className="w-full py-3 bg-black text-white font-bold rounded-xl hover:bg-blue hover:text-white border-2 border-transparent hover:border-black transition-all shadow-xl">

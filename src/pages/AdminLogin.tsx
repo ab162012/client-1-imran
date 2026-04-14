@@ -1,55 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../supabase';
 import { Lock, LogIn } from 'lucide-react';
 
-const ADMIN_EMAILS = ["abdulbasit162012@gmail.com", "infoperfumeenclave@gmail.com"];
+const ADMIN_KEY = "Imran101";
 
 export const AdminLogin = () => {
+  const [key, setKey] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user?.email && ADMIN_EMAILS.includes(session.user.email)) {
-        localStorage.setItem('adminToken', 'supabase-auth-token');
-        navigate('/admin');
-      } else if (session?.user) {
-        // Logged in but not an admin
-        setError('Access Denied: You do not have admin privileges.');
-        await supabase.auth.signOut();
-      }
-    };
-    checkSession();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user?.email && ADMIN_EMAILS.includes(session.user.email)) {
-        localStorage.setItem('adminToken', 'supabase-auth-token');
-        navigate('/admin');
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    const token = localStorage.getItem('adminToken');
+    if (token === ADMIN_KEY) {
+      navigate('/admin');
+    }
   }, [navigate]);
 
-  const handleGoogleLogin = async () => {
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
     setError('');
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/admin-login`
-        }
-      });
-      if (error) throw error;
-    } catch (err: any) {
-      console.error('Login error:', err);
-      setError(err.message || 'An error occurred during login.');
-      setLoading(false);
+
+    if (key === ADMIN_KEY) {
+      localStorage.setItem('adminToken', ADMIN_KEY);
+      navigate('/admin');
+    } else {
+      setError('Invalid Admin Key. Please try again.');
     }
+    setLoading(false);
   };
 
   return (
@@ -61,7 +40,7 @@ export const AdminLogin = () => {
           </div>
           <h1 className="text-2xl font-medium text-white">Admin Access</h1>
           <p className="text-white/60 text-sm mt-2 text-center">
-            Sign in with your authorized Google account.
+            Enter your secret admin key to continue.
           </p>
         </div>
 
@@ -71,9 +50,19 @@ export const AdminLogin = () => {
           </div>
         )}
 
-        <div className="space-y-6">
+        <form onSubmit={handleLogin} className="space-y-6">
+          <div>
+            <input
+              type="password"
+              placeholder="Enter Admin Key"
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              className="w-full px-5 py-4 rounded-2xl border border-white/20 bg-white/5 text-white focus:border-white outline-none transition-all font-medium"
+              required
+            />
+          </div>
           <button
-            onClick={handleGoogleLogin}
+            type="submit"
             disabled={loading}
             className="w-full py-4 bg-white text-black font-medium rounded-2xl hover:bg-gray-200 transition-all shadow-lg shadow-white/20 disabled:opacity-50 flex items-center justify-center gap-3"
           >
@@ -82,7 +71,7 @@ export const AdminLogin = () => {
             ) : (
               <>
                 <LogIn size={20} />
-                Sign in with Google
+                Access Dashboard
               </>
             )}
           </button>
@@ -90,7 +79,7 @@ export const AdminLogin = () => {
           <p className="text-white/40 text-xs text-center">
             Only authorized administrators can access this area.
           </p>
-        </div>
+        </form>
       </div>
     </div>
   );
