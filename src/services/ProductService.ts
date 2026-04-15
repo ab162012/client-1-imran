@@ -9,94 +9,85 @@ import {
   DocumentData,
   getCountFromServer,
   getDocsFromCache,
-  getDocsFromServer
+  getDocsFromServer,
+  doc,
+  getDoc,
+  updateDoc,
+  addDoc,
+  deleteDoc,
+  serverTimestamp
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 import { Product } from '../types';
+import { STORE_ID } from '../constants';
 
-// --- CACHING CONFIG ---
-const CACHE_KEY = 'perfume_enclave_products_cache';
-const CACHE_EXPIRATION_MS = 10 * 60 * 1000; // 10 minutes
-
-interface CachedData {
-  products: Product[];
-  timestamp: number;
-}
+// --- SIMPLE IN-MEMORY CACHE ---
+const productCache: Record<string, { data: any, timestamp: number }> = {};
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 export const ProductService = {
   /**
-   * Optimized count aggregation.
-   * Reduces 1000+ reads to 1 single read.
+   * Gets the collection reference for products scoped to the current store.
+   */
+  getCollectionRef: () => {
+    return collection(db, 'stores', STORE_ID, 'products');
+  },
+
+  /**
+   * Optimized count aggregation scoped to store.
    */
   getProductCount: async (): Promise<number> => {
     try {
-      const coll = collection(db, 'products');
+      const coll = ProductService.getCollectionRef();
       const snapshot = await getCountFromServer(coll);
       return snapshot.data().count;
     } catch (error) {
-      console.error('[ProductService] Error getting count:', error);
+      handleFirestoreError(error, OperationType.GET, `stores/${STORE_ID}/products`);
       return 0;
     }
   },
 
   /**
-   * Fetches products with a Stale-While-Revalidate (SWR) strategy.
-   * Returns cached data immediately if available, then updates from server.
+   * Fetches a single product by ID with caching.
    */
-  getProducts: async (onUpdate?: (products: Product[]) => void): Promise<Product[]> => {
+  getProductById: async (id: string): Promise<Product | null> => {
+    const cacheKey = `product_${id}`;
+    if (productCache[cacheKey] && (Date.now() - productCache[cacheKey].timestamp < CACHE_TTL)) {
+      return productCache[cacheKey].data;
+    }
+
     try {
-      const productsRef = collection(db, 'products');
-      const q = query(productsRef, orderBy('name'));
-
-      // 1. Try to get from cache first (Stale)
-      let products: Product[] = [];
-      try {
-        const cacheSnapshot = await getDocsFromCache(q);
-        if (!cacheSnapshot.empty) {
-          products = cacheSnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...(doc.data() as any)
-          })) as Product[];
-          console.log('[ProductService] Serving from local cache (SWR)');
-          if (onUpdate) onUpdate(products);
-        }
-      } catch (e) {
-        console.log('[ProductService] Cache miss or not available');
-      }
-
-      // 2. Revalidate from server
-      const serverSnapshot = await getDocsFromServer(q);
-      const serverProducts = serverSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...(doc.data() as any)
-      })) as Product[];
-
-      console.log('[ProductService] Revalidated from server');
-      if (onUpdate) onUpdate(serverProducts);
+      const docRef = doc(db, 'stores', STORE_ID, 'products', id);
+      const docSnap = await getDoc(docRef);
       
-      return serverProducts;
+      if (docSnap.exists()) {
+        const data = { id: docSnap.id, ...docSnap.data() } as Product;
+        productCache[cacheKey] = { data, timestamp: Date.now() };
+        return data;
+      }
+      return null;
     } catch (error) {
-      console.error('[ProductService] Error fetching products:', error);
-      throw error;
+      handleFirestoreError(error, OperationType.GET, `stores/${STORE_ID}/products/${id}`);
+      return null;
     }
   },
 
   /**
-   * Scalable cursor-based pagination.
-   * Loads only 20 products at a time.
+   * Scalable cursor-based pagination scoped to store.
+   * Loads 12 products at a time (optimized for grid layouts).
    */
-  getProductsPaginated: async (pageSize = 20, lastDoc: QueryDocumentSnapshot<DocumentData> | null = null) => {
+  getProductsPaginated: async (pageSize = 12, lastDoc: QueryDocumentSnapshot<DocumentData> | null = null) => {
     try {
-      const productsRef = collection(db, 'products');
+      const productsRef = ProductService.getCollectionRef();
       let q;
       
       if (lastDoc) {
-        q = query(productsRef, orderBy('name'), startAfter(lastDoc), limit(pageSize));
+        q = query(productsRef, orderBy('createdAt', 'desc'), startAfter(lastDoc), limit(pageSize));
       } else {
-        q = query(productsRef, orderBy('name'), limit(pageSize));
+        q = query(productsRef, orderBy('createdAt', 'desc'), limit(pageSize));
       }
 
-      // Use getDocs which automatically handles cache/server based on persistence
+      // Try cache first, then server
       const snapshot = await getDocs(q);
       const products = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -109,7 +100,82 @@ export const ProductService = {
         hasMore: snapshot.docs.length === pageSize
       };
     } catch (error) {
-      console.error('[ProductService] Pagination error:', error);
+      handleFirestoreError(error, OperationType.LIST, `stores/${STORE_ID}/products`);
+      throw error;
+    }
+  },
+
+  /**
+   * Fetches all featured products with caching.
+   */
+  getFeaturedProducts: async (): Promise<Product[]> => {
+    const cacheKey = 'featured_products';
+    if (productCache[cacheKey] && (Date.now() - productCache[cacheKey].timestamp < CACHE_TTL)) {
+      return productCache[cacheKey].data;
+    }
+
+    try {
+      const productsRef = ProductService.getCollectionRef();
+      const q = query(productsRef, orderBy('featured', 'desc'), limit(10));
+      const snapshot = await getDocs(q);
+      const products = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...(doc.data() as any)
+      })) as Product[];
+
+      productCache[cacheKey] = { data: products, timestamp: Date.now() };
+      return products;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, `stores/${STORE_ID}/products`);
+      return [];
+    }
+  },
+
+  /**
+   * Updates a product.
+   */
+  updateProduct: async (id: string, productData: Partial<Product>) => {
+    try {
+      const docRef = doc(db, 'stores', STORE_ID, 'products', id);
+      await updateDoc(docRef, productData);
+      // Clear cache for this product
+      delete productCache[`product_${id}`];
+      delete productCache['featured_products'];
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `stores/${STORE_ID}/products/${id}`);
+      throw error;
+    }
+  },
+
+  /**
+   * Adds a new product.
+   */
+  addProduct: async (productData: any) => {
+    try {
+      const productsRef = ProductService.getCollectionRef();
+      const docRef = await addDoc(productsRef, {
+        ...productData,
+        createdAt: serverTimestamp()
+      });
+      delete productCache['featured_products'];
+      return docRef.id;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `stores/${STORE_ID}/products`);
+      throw error;
+    }
+  },
+
+  /**
+   * Deletes a product.
+   */
+  deleteProduct: async (id: string) => {
+    try {
+      const docRef = doc(db, 'stores', STORE_ID, 'products', id);
+      await deleteDoc(docRef);
+      delete productCache[`product_${id}`];
+      delete productCache['featured_products'];
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `stores/${STORE_ID}/products/${id}`);
       throw error;
     }
   }

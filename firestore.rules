@@ -8,7 +8,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() && 
-             (request.auth.token.email in ["abdulbasit162012@gmail.com", "infoperfumeenclave@gmail.com"] && request.auth.token.email_verified == true);
+             (request.auth.token.email in ["abdulbasit162012@gmail.com", "infoperfumeenclave@gmail.com"]);
     }
 
     function hasOnlyAllowedFields(allowedFields) {
@@ -27,7 +27,7 @@ service cloud.firestore {
              data.usage is string && data.usage.size() < 500 &&
              (!('views' in data) || (data.views is number && data.views >= 0)) &&
              (!('featured' in data) || (data.featured is bool)) &&
-             (!('createdAt' in data) || (data.createdAt is number)) &&
+             (!('createdAt' in data) || (data.createdAt is timestamp || data.createdAt is number)) &&
              (!('discount' in data) || (data.discount is number)) &&
              (!('reviewCount' in data) || (data.reviewCount is number)) &&
              (!('sizePrices' in data) || (data.sizePrices is map)) &&
@@ -55,7 +55,7 @@ service cloud.firestore {
              data.rating is number && data.rating >= 1 && data.rating <= 5 &&
              data.comment is string && data.comment.size() < 1000 &&
              data.status is string && data.status in ['pending', 'approved', 'rejected'] &&
-             data.createdAt is number &&
+             (!('createdAt' in data) || (data.createdAt is timestamp || data.createdAt is number)) &&
              (!('verified' in data) || data.verified is bool);
     }
 
@@ -70,6 +70,33 @@ service cloud.firestore {
              data.heroProductId is string;
     }
 
+    match /stores/{storeId} {
+      match /products/{productId} {
+        allow read: if true;
+        allow create: if isAdmin() && isValidProduct(request.resource.data);
+        allow update: if (isAdmin() && isValidProduct(request.resource.data)) || 
+                        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']));
+        allow delete: if isAdmin();
+      }
+
+      match /orders/{orderId} {
+        allow create: if isValidOrder(request.resource.data);
+        allow read, update, delete: if isAdmin();
+      }
+
+      match /reviews/{reviewId} {
+        allow read: if true;
+        allow create: if isValidReview(request.resource.data);
+        allow update, delete: if isAdmin();
+      }
+
+      match /settings/{settingId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+    }
+
+    // Legacy paths (keeping for backward compatibility during migration if needed, or remove if fully migrated)
     match /products/{productId} {
       allow read: if true;
       allow write: if isAdmin();

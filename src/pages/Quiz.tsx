@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { db } from '../firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { Product } from '../types';
+import { STORE_ID } from '../constants';
 import { ArrowRight, ArrowLeft, RefreshCw, ShoppingBag, Sparkles } from 'lucide-react';
 import { ProductCard } from '../components/Common';
 
@@ -51,7 +52,7 @@ export const Quiz = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'products'), (snapshot) => {
+    const unsub = onSnapshot(collection(db, 'stores', STORE_ID, 'products'), (snapshot) => {
       const productsData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()

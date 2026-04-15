@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Product } from '../types';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { STORE_ID } from '../constants';
 import { ProductCard } from './Common';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -11,7 +12,7 @@ export const FeaturedCarousel = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
 
   useEffect(() => {
-    const q = query(collection(db, 'products'), where('featured', '==', true));
+    const q = query(collection(db, 'stores', STORE_ID, 'products'), where('featured', '==', true));
     const unsub = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product));
       setProducts(data);

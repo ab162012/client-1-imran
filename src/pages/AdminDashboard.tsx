@@ -3,12 +3,17 @@ import { db, auth, handleFirestoreError, OperationType } from '../firebase';
 import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, setDoc, onSnapshot, getCountFromServer } from 'firebase/firestore';
 import { Product, Review, SiteSettings } from '../types';
 import { useSettings } from '../contexts/SettingsContext';
+import { STORE_ID } from '../constants';
 import { 
   Loader2, Package, Edit2, Save, X, Plus, ShoppingBag, 
-  LayoutDashboard, PlusCircle, Settings, LogOut, Image as ImageIcon, Trash2, Star, Menu, MessageSquare, LayoutTemplate, CheckCircle2, TrendingUp, BarChart3
+  LayoutDashboard, PlusCircle, Settings, LogOut, Image as ImageIcon, Trash2, Star, Menu, MessageSquare, LayoutTemplate, CheckCircle2, TrendingUp, BarChart3, RefreshCw
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { migrateLegacyProducts } from '../seed';
 import { ProductService } from '../services/ProductService';
+import { OrderService } from '../services/OrderService';
+import { ReviewService } from '../services/ReviewService';
+import { SettingsService } from '../services/SettingsService';
 
 export const AdminDashboard = () => {
   const [productCount, setProductCount] = useState(0);
@@ -27,6 +32,13 @@ export const AdminDashboard = () => {
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const { settings: globalSettings } = useSettings();
   const navigate = useNavigate();
+
+  // Pagination State
+  const [lastProductDoc, setLastProductDoc] = useState<any>(null);
+  const [lastOrderDoc, setLastOrderDoc] = useState<any>(null);
+  const [hasMoreProducts, setHasMoreProducts] = useState(false);
+  const [hasMoreOrders, setHasMoreOrders] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Edit Product State
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -63,10 +75,16 @@ export const AdminDashboard = () => {
     heroProductId: ''
   });
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const showSuccess = (msg: string) => {
     setSuccessMessage(msg);
     setTimeout(() => setSuccessMessage(null), 3000);
+  };
+
+  const showError = (msg: string) => {
+    setErrorMessage(msg);
+    setTimeout(() => setErrorMessage(null), 5000);
   };
 
   useEffect(() => {
@@ -75,38 +93,45 @@ export const AdminDashboard = () => {
     }
   }, [globalSettings]);
 
+  const fetchData = async (isRefresh = false) => {
+    try {
+      if (!isRefresh) setLoading(true);
+      else setRefreshing(true);
+
+      // Fetch products (first page)
+      const prodResult = await ProductService.getProductsPaginated(15);
+      setProducts(prodResult.products);
+      setLastProductDoc(prodResult.lastDoc);
+      setHasMoreProducts(prodResult.hasMore);
+
+      // Fetch orders (first page)
+      const orderResult = await OrderService.getOrdersPaginated(15);
+      setOrders(orderResult.orders);
+      setLastOrderDoc(orderResult.lastDoc);
+      setHasMoreOrders(orderResult.hasMore);
+
+      // Fetch counts
+      const pCount = await ProductService.getProductCount();
+      // For orders count, we could add a getOrderCount to OrderService
+      // For now, using total fetched or a separate count call if needed
+      setProductCount(pCount);
+      setOrderCount(orderResult.orders.length); // Placeholder for total count
+
+    } catch (error) {
+      console.error("Error fetching admin data:", error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchCounts = async () => {
-      try {
-        const pCount = await ProductService.getProductCount();
-        setProductCount(pCount);
+    fetchData();
 
-        const ordersColl = collection(db, 'orders');
-        const oCount = await getCountFromServer(ordersColl);
-        setOrderCount(oCount.data().count);
-      } catch (error) {
-        console.error("Error fetching dashboard counts:", error);
-      }
-    };
-    fetchCounts();
-
-    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
-      const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Product[];
-      setProducts(productsData);
-      setLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'products');
-      setLoading(false);
-    });
-
-    const unsubOrders = onSnapshot(collection(db, 'orders'), (snapshot) => {
-      const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setOrders(ordersData);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'orders');
-    });
-
-    const unsubReviews = onSnapshot(collection(db, 'reviews'), (snapshot) => {
+    // Reviews still using onSnapshot for real-time moderation if needed, 
+    // but scoped to store if we move reviews to store-scoped too.
+    // For now, keeping it simple or refactoring reviews later.
+    const unsubReviews = onSnapshot(collection(db, 'stores', STORE_ID, 'reviews'), (snapshot) => {
       const reviewsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Review[];
       setReviews(reviewsData);
     }, (error) => {
@@ -114,11 +139,33 @@ export const AdminDashboard = () => {
     });
 
     return () => {
-      unsubProducts();
-      unsubOrders();
       unsubReviews();
     };
   }, []);
+
+  const loadMoreProducts = async () => {
+    if (!lastProductDoc) return;
+    try {
+      const result = await ProductService.getProductsPaginated(15, lastProductDoc);
+      setProducts(prev => [...prev, ...result.products]);
+      setLastProductDoc(result.lastDoc);
+      setHasMoreProducts(result.hasMore);
+    } catch (error) {
+      console.error("Error loading more products:", error);
+    }
+  };
+
+  const loadMoreOrders = async () => {
+    if (!lastOrderDoc) return;
+    try {
+      const result = await OrderService.getOrdersPaginated(15, lastOrderDoc);
+      setOrders(prev => [...prev, ...result.orders]);
+      setLastOrderDoc(result.lastDoc);
+      setHasMoreOrders(result.hasMore);
+    } catch (error) {
+      console.error("Error loading more orders:", error);
+    }
+  };
 
   const handleLogout = async () => {
     localStorage.removeItem('adminToken');
@@ -207,42 +254,45 @@ export const AdminDashboard = () => {
         Object.entries(cleanEditForm).filter(([_, v]) => v !== undefined)
       );
 
-      const docRef = doc(db, 'products', editingId);
-      await updateDoc(docRef, productData);
+      await ProductService.updateProduct(editingId, productData);
       showSuccess('Product updated successfully');
       setEditingId(null);
+      fetchData(true);
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `products/${editingId}`);
+      console.error('Update failed:', error);
     }
   };
 
   const handleDeleteProduct = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'products', id));
+      await ProductService.deleteProduct(id);
       showSuccess('Product deleted successfully');
       setDeleteConfirm(null);
+      fetchData(true);
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `products/${id}`);
+      console.error('Delete failed:', error);
     }
   };
 
   const handleDeleteOrder = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'orders', id));
+      await OrderService.deleteOrder(id);
       showSuccess('Order deleted successfully');
       setDeleteConfirm(null);
+      fetchData(true);
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `orders/${id}`);
+      console.error('Delete failed:', error);
     }
   };
 
   const handleDeleteReview = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'reviews', id));
+      await ReviewService.deleteReview(id);
       showSuccess('Review deleted successfully');
       setDeleteConfirm(null);
+      fetchData(true);
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `reviews/${id}`);
+      console.error('Delete failed:', error);
     }
   };
 
@@ -270,12 +320,11 @@ export const AdminDashboard = () => {
     try {
       if (editingProduct) {
         // Update existing product
-        const docRef = doc(db, 'products', editingProduct.id);
-        await updateDoc(docRef, productData);
+        await ProductService.updateProduct(editingProduct.id, productData);
         showSuccess('Product updated successfully');
       } else {
         // Add new product
-        await addDoc(collection(db, 'products'), productData);
+        await ProductService.addProduct(productData);
         showSuccess('Product added successfully');
       }
       
@@ -301,8 +350,9 @@ export const AdminDashboard = () => {
       setEditingProduct(null);
       setActiveTab('products');
       setIsSidebarOpen(false);
+      fetchData(true);
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'products');
+      console.error('Write failed:', error);
     } finally {
       setIsSubmitting(false);
     }
@@ -341,18 +391,22 @@ export const AdminDashboard = () => {
   // --- Order Actions ---
   const handleOrderStatus = async (id: string, status: string) => {
     try {
-      await updateDoc(doc(db, 'orders', id), { status });
+      await OrderService.updateOrderStatus(id, status);
+      showSuccess('Order status updated');
+      fetchData(true);
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `orders/${id}`);
+      console.error('Update failed:', error);
     }
   };
 
   // --- Reviews Actions ---
   const handleReviewStatus = async (id: string, status: 'approved' | 'rejected') => {
     try {
-      await updateDoc(doc(db, 'reviews', id), { status });
+      await ReviewService.updateReviewStatus(id, status);
+      showSuccess('Review status updated');
+      fetchData(true);
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `reviews/${id}`);
+      console.error('Update failed:', error);
     }
   };
 
@@ -370,25 +424,50 @@ export const AdminDashboard = () => {
           createdAt: Date.now()
         }).filter(([_, v]) => v !== undefined)
       );
-      const docRef = await addDoc(collection(db, 'reviews'), reviewData);
+      await ReviewService.addReview(reviewData);
       setNewReviewForm({ productId: '', customerName: '', rating: 5, comment: '', verified: true });
       setIsAddingReview(false);
-      alert('Verified review added successfully!');
+      showSuccess('Verified review added successfully!');
+      fetchData(true);
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'reviews');
+      console.error('Add failed:', error);
     }
   };
 
+  const [isMigrating, setIsMigrating] = useState(false);
+
   // --- Settings Actions ---
+  const handleMigrate = async () => {
+    try {
+      setIsMigrating(true);
+      const result = await migrateLegacyProducts(true);
+      if (result.success) {
+        showSuccess(`Successfully migrated ${result.count} products!`);
+        fetchData(true);
+      } else {
+        showError(result.message || 'Migration failed');
+      }
+    } catch (error) {
+      console.error('Migration failed:', error);
+      showError('Migration failed. Check console.');
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+
   const handleSaveSettings = async () => {
     try {
+      setIsSubmitting(true);
       const settingsData = Object.fromEntries(
         Object.entries(siteSettingsForm).filter(([_, v]) => v !== undefined)
-      );
-      await setDoc(doc(db, 'settings', 'general'), settingsData);
+      ) as unknown as SiteSettings;
+      await SettingsService.updateSettings(settingsData);
       showSuccess('Settings updated successfully');
+      fetchData(true);
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'settings/site');
+      console.error('Save failed:', error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -589,6 +668,16 @@ export const AdminDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* Error Message Toast */}
+      {errorMessage && (
+        <div className="fixed bottom-8 right-8 z-50 animate-in fade-in slide-in-from-bottom-4">
+          <div className="bg-white text-black px-6 py-4 rounded-2xl shadow-2xl flex items-center space-x-3 border-2 border-red-500">
+            <X className="text-red-500" size={20} />
+            <span className="font-bold">{errorMessage}</span>
+          </div>
+        </div>
+      )}
       
       {/* Mobile Sidebar Toggle */}
       <div className="md:hidden fixed bottom-6 right-6 z-50">
@@ -646,7 +735,17 @@ export const AdminDashboard = () => {
               <div className="space-y-8">
             <div className="flex justify-between items-center">
               <h1 className="text-2xl font-bold text-black">Dashboard Overview</h1>
-              <p className="text-sm font-medium text-blue-dark/60">{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+              <div className="flex items-center space-x-4">
+                <button 
+                  onClick={() => fetchData(true)}
+                  disabled={refreshing}
+                  className="p-2 text-blue-dark hover:bg-blue-light rounded-full transition-colors disabled:opacity-50"
+                  title="Refresh Data"
+                >
+                  <Loader2 className={refreshing ? 'animate-spin' : ''} size={20} />
+                </button>
+                <p className="text-sm font-medium text-blue-dark/60">{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+              </div>
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -838,6 +937,16 @@ export const AdminDashboard = () => {
                   </tbody>
                 </table>
               </div>
+              {hasMoreProducts && (
+                <div className="mt-6 flex justify-center">
+                  <button 
+                    onClick={loadMoreProducts}
+                    className="px-8 py-3 bg-white text-black font-bold rounded-2xl border-2 border-blue hover:border-black transition-all shadow-sm"
+                  >
+                    Load More Products
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1117,6 +1226,16 @@ export const AdminDashboard = () => {
                   </tbody>
                 </table>
               </div>
+              {hasMoreOrders && (
+                <div className="mt-6 flex justify-center">
+                  <button 
+                    onClick={loadMoreOrders}
+                    className="px-8 py-3 bg-white text-black font-bold rounded-2xl border-2 border-blue hover:border-black transition-all shadow-sm"
+                  >
+                    Load More Orders
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1395,10 +1514,25 @@ export const AdminDashboard = () => {
                 </div>
               </div>
               
-              <div className="pt-6">
+              <div className="pt-6 space-y-4">
                 <button onClick={handleSaveSettings} className="w-full py-4 bg-black text-white font-bold rounded-xl hover:bg-blue hover:text-white border-2 border-transparent hover:border-black transition-all shadow-xl">
                   Save All Settings
                 </button>
+
+                <div className="pt-8 border-t-2 border-blue">
+                  <h3 className="text-sm font-bold text-blue-dark/40 uppercase tracking-widest mb-4">Data Management</h3>
+                  <button 
+                    onClick={handleMigrate} 
+                    disabled={isMigrating}
+                    className="w-full py-3 bg-white text-blue-dark font-bold rounded-xl border-2 border-blue hover:bg-blue-light transition-all flex items-center justify-center gap-2"
+                  >
+                    {isMigrating ? <Loader2 className="animate-spin" size={18} /> : <RefreshCw size={18} />}
+                    Migrate Legacy Products
+                  </button>
+                  <p className="mt-2 text-[10px] text-blue-dark/50 font-medium text-center">
+                    Use this if you have products in the old database structure that you want to bring into this store.
+                  </p>
+                </div>
               </div>
             </div>
           </div>

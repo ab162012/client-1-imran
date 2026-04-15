@@ -38,8 +38,8 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
       const count = await ProductService.getProductCount();
       setTotalCount(count);
 
-      // Fetch first page (20 items)
-      const result = await ProductService.getProductsPaginated(20);
+      // Fetch first page (12 items)
+      const result = await ProductService.getProductsPaginated(12);
       const processed = processProducts(result.products);
       
       setProducts(featuredOnly ? processed.filter(p => p.featured) : processed);
@@ -56,7 +56,7 @@ export const ProductsList: React.FC<ProductsListProps> = ({ featuredOnly = false
     if (loadingMore || !lastDoc) return;
     try {
       setLoadingMore(true);
-      const result = await ProductService.getProductsPaginated(20, lastDoc);
+      const result = await ProductService.getProductsPaginated(12, lastDoc);
       const processed = processProducts(result.products);
       
       setProducts(prev => [...prev, ...(featuredOnly ? processed.filter(p => p.featured) : processed)]);

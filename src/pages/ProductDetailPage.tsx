@@ -8,6 +8,8 @@ import { Minus, Plus, ShoppingBag, ArrowLeft, ShieldCheck, Zap, Eye, Star, Trend
 import { ProductCard } from '../components/Common';
 import { DeliveryTimeline } from '../components/DeliveryTimeline';
 import { ProductService } from '../services/ProductService';
+import { ReviewService } from '../services/ReviewService';
+import { STORE_ID } from '../constants';
 
 export const ProductDetailPage = () => {
   const { id } = useParams();
@@ -45,16 +47,17 @@ export const ProductDetailPage = () => {
     const fetchProductData = async () => {
       try {
         setLoading(true);
-        const products = await ProductService.getProducts();
-        const foundProduct = products.find(p => p.id === id);
+        if (!id) return;
+        
+        const foundProduct = await ProductService.getProductById(id);
         
         if (foundProduct) {
           setProduct(foundProduct);
           setMainImage(foundProduct.image);
           
-          // Set Bundles from cache
-          const featured = products.filter(p => p.featured && p.id !== id);
-          setBundles(featured.slice(0, 2));
+          // Fetch featured products for bundles (uses cache)
+          const featured = await ProductService.getFeaturedProducts();
+          setBundles(featured.filter(p => p.id !== id).slice(0, 2));
         } else {
           setProduct(null);
         }
@@ -68,14 +71,15 @@ export const ProductDetailPage = () => {
     fetchProductData();
 
     let unsubReviews: (() => void) | undefined;
-    if (showReviews) {
+    if (showReviews && id) {
       // Real-time Reviews Listener (Keep this real-time as it's dynamic)
-      const q = query(collection(db, 'reviews'), where('productId', '==', id), where('status', '==', 'approved'));
+      const reviewsRef = ReviewService.getCollectionRef();
+      const q = query(reviewsRef, where('productId', '==', id), where('status', '==', 'approved'));
       unsubReviews = onSnapshot(q, (snapshot) => {
         const reviewsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Review[];
         setReviews(reviewsData);
       }, (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'reviews');
+        handleFirestoreError(error, OperationType.LIST, `stores/${STORE_ID}/reviews`);
       });
     }
 
@@ -97,7 +101,8 @@ export const ProductDetailPage = () => {
     // Increment views (one-time)
     const incrementViews = async () => {
       try {
-        await updateDoc(doc(db, 'products', id), {
+        if (!id) return;
+        await updateDoc(doc(db, 'stores', STORE_ID, 'products', id), {
           views: increment(1)
         });
       } catch (e) {
@@ -118,13 +123,12 @@ export const ProductDetailPage = () => {
     
     setReviewSubmitting(true);
     try {
-      await addDoc(collection(db, 'reviews'), {
+      await ReviewService.addReview({
         productId: id,
         customerName: newReview.name,
         rating: newReview.rating,
         comment: newReview.comment,
-        status: 'pending',
-        createdAt: Date.now()
+        status: 'pending'
       });
       setReviewSuccess(true);
       setNewReview({ name: '', rating: 5, comment: '' });

@@ -3,6 +3,8 @@ import { db, handleFirestoreError, OperationType } from '../firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { SiteSettings } from '../types';
 
+import { STORE_ID } from '../constants';
+
 interface SettingsContextType {
   settings: SiteSettings | null;
   loading: boolean;
@@ -27,7 +29,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(doc(db, 'settings', 'general'), (docSnap) => {
+    const unsubscribe = onSnapshot(doc(db, 'stores', STORE_ID, 'settings', 'general'), (docSnap) => {
       if (docSnap.exists()) {
         const newSettings = { ...defaultSettings, ...docSnap.data() } as SiteSettings;
         setSettings(newSettings);

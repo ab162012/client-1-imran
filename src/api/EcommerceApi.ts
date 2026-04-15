@@ -1,6 +1,7 @@
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, addDoc, doc, runTransaction } from 'firebase/firestore';
+import { collection, addDoc, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { CartItem } from '../types';
+import { STORE_ID } from '../constants';
 
 export const EcommerceApi = {
   initializeCheckout: async (cart: CartItem[], customerData: any) => {
@@ -32,10 +33,11 @@ export const EcommerceApi = {
         })),
         total: total,
         status: 'pending',
-        timestamp: new Date().toISOString()
+        timestamp: serverTimestamp(),
+        createdAt: serverTimestamp()
       };
 
-      const orderRef = await addDoc(collection(db, 'orders'), orderData);
+      const orderRef = await addDoc(collection(db, 'stores', STORE_ID, 'orders'), orderData);
       const orderId = orderRef.id;
       
       // Send email notification to admin

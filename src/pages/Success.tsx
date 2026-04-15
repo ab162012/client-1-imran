@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { CheckCircle2, ShoppingBag, ArrowRight, Package, MapPin, Phone, User, Calendar, CreditCard } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { STORE_ID } from '../constants';
 
 export const Success = () => {
   const location = useLocation();
@@ -14,7 +15,7 @@ export const Success = () => {
     if (orderId) {
       const fetchOrder = async () => {
         try {
-          const docSnap = await getDoc(doc(db, 'orders', orderId));
+          const docSnap = await getDoc(doc(db, 'stores', STORE_ID, 'orders', orderId));
           if (docSnap.exists()) {
             setOrder({ id: docSnap.id, ...docSnap.data() });
           }

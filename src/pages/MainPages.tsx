@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { PRODUCTS } from '../constants';
 import { ProductsList } from '../components/ProductsList';
 import { ProductCard } from '../components/Common';
 import { CheckCircle2, Gift, Star, MessageSquare, ShoppingBag } from 'lucide-react';
@@ -8,6 +7,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { db } from '../firebase';
 import { collection, query, where, limit, onSnapshot, doc } from 'firebase/firestore';
 import { Product, Review } from '../types';
+import { STORE_ID } from '../constants';
 import { FeaturedCarousel } from '../components/FeaturedCarousel';
 import { DeliveryTimeline } from '../components/DeliveryTimeline';
 
@@ -18,7 +18,7 @@ export const Home = () => {
   const [loadingTestimonials, setLoadingTestimonials] = useState(true);
 
   useEffect(() => {
-    const q = query(collection(db, 'reviews'), where('status', '==', 'approved'), limit(2));
+    const q = query(collection(db, 'stores', STORE_ID, 'reviews'), where('status', '==', 'approved'), limit(2));
     const unsub = onSnapshot(q, (snapshot) => {
       const reviewsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Review[];
       setTestimonials(reviewsData);
@@ -33,7 +33,7 @@ export const Home = () => {
   useEffect(() => {
     if (!settings?.heroProductId) return;
 
-    const unsubHero = onSnapshot(doc(db, 'products', settings.heroProductId), (docSnap) => {
+    const unsubHero = onSnapshot(doc(db, 'stores', STORE_ID, 'products', settings.heroProductId), (docSnap) => {
       if (docSnap.exists()) {
         setHeroProduct({ id: docSnap.id, ...docSnap.data() } as Product);
       } else {

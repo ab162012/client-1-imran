@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { CartItem, Product } from '../types';
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { STORE_ID } from '../constants';
 
 interface CartContextType {
   cart: CartItem[];
@@ -34,7 +35,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const updatedCart = await Promise.all(
           cart.map(async (item) => {
             try {
-              const docRef = doc(db, 'products', item.id);
+              const docRef = doc(db, 'stores', STORE_ID, 'products', item.id);
               const docSnap = await getDoc(docRef);
               
               if (docSnap.exists()) {

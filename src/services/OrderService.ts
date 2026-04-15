@@ -1,75 +1,101 @@
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../firebase';
-
-// --- ANTI-SPAM CONFIG ---
-const SUBMISSION_COOLDOWN_MS = 30 * 1000; // 30 seconds between orders
-let lastSubmissionTime = 0;
+import { 
+  collection, 
+  query, 
+  getDocs, 
+  limit, 
+  startAfter, 
+  orderBy, 
+  QueryDocumentSnapshot,
+  DocumentData,
+  addDoc,
+  serverTimestamp,
+  doc,
+  updateDoc,
+  deleteDoc
+} from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../firebase';
+import { STORE_ID } from '../constants';
 
 export const OrderService = {
   /**
-   * Submits an order with validation and anti-spam protection.
+   * Gets the collection reference for orders scoped to the current store.
    */
-  submitOrder: async (orderData: {
-    customer: {
-      name: string;
-      email: string;
-      phone: string;
-      address: string;
-      city: string;
-    };
-    products: any[];
-    total: number;
-  }) => {
+  getCollectionRef: () => {
+    return collection(db, 'stores', STORE_ID, 'orders');
+  },
+
+  /**
+   * Submits a new order with error handling for UI.
+   */
+  submitOrder: async (orderData: any) => {
     try {
-      // 1. Basic Validation
-      const { name, phone, address, city } = orderData.customer;
-      if (!name || !phone || !address || !city) {
-        throw new Error('Missing required customer information');
-      }
-
-      if (!orderData.products || orderData.products.length === 0) {
-        throw new Error('Cart is empty');
-      }
-
-      // 2. Anti-Spam (Cooldown)
-      const now = Date.now();
-      if (now - lastSubmissionTime < SUBMISSION_COOLDOWN_MS) {
-        const remaining = Math.ceil((SUBMISSION_COOLDOWN_MS - (now - lastSubmissionTime)) / 1000);
-        throw new Error(`Please wait ${remaining} seconds before placing another order.`);
-      }
-
-      // 3. Prepare Data
-      const finalOrder = {
+      const ordersRef = OrderService.getCollectionRef();
+      const docRef = await addDoc(ordersRef, {
         ...orderData,
-        products: orderData.products.map(p => ({
-          id: p.id,
-          name: p.name,
-          price: p.price,
-          quantity: p.quantity,
-          size: p.selectedSize || '50ml'
-        })),
-        status: 'pending',
-        timestamp: serverTimestamp(), // Use server-side timestamp for security
-        createdAt: new Date().toISOString()
-      };
+        createdAt: serverTimestamp(),
+        status: 'pending'
+      });
+      return { success: true, orderId: docRef.id };
+    } catch (error) {
+      console.error('Order submission failed:', error);
+      return { success: false, error: 'Failed to place order. Please try again.' };
+    }
+  },
 
-      // 4. Save to Firestore
-      const ordersRef = collection(db, 'orders');
-      const docRef = await addDoc(ordersRef, finalOrder);
+  /**
+   * Fetches orders with pagination.
+   */
+  getOrdersPaginated: async (pageSize = 15, lastDoc: QueryDocumentSnapshot<DocumentData> | null = null) => {
+    try {
+      const ordersRef = OrderService.getCollectionRef();
+      let q;
       
-      // Update last submission time
-      lastSubmissionTime = Date.now();
+      if (lastDoc) {
+        q = query(ordersRef, orderBy('createdAt', 'desc'), startAfter(lastDoc), limit(pageSize));
+      } else {
+        q = query(ordersRef, orderBy('createdAt', 'desc'), limit(pageSize));
+      }
+
+      const snapshot = await getDocs(q);
+      const orders = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...(doc.data() as any)
+      }));
 
       return {
-        success: true,
-        orderId: docRef.id
+        orders,
+        lastDoc: snapshot.docs[snapshot.docs.length - 1] || null,
+        hasMore: snapshot.docs.length === pageSize
       };
-    } catch (error: any) {
-      console.error('[OrderService] Order submission failed:', error);
-      return {
-        success: false,
-        error: error.message || 'Failed to place order'
-      };
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, `stores/${STORE_ID}/orders`);
+      throw error;
+    }
+  },
+
+  /**
+   * Updates an order status.
+   */
+  updateOrderStatus: async (orderId: string, status: string) => {
+    try {
+      const orderRef = doc(db, 'stores', STORE_ID, 'orders', orderId);
+      await updateDoc(orderRef, { status });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `stores/${STORE_ID}/orders/${orderId}`);
+      throw error;
+    }
+  },
+
+  /**
+   * Deletes an order.
+   */
+  deleteOrder: async (orderId: string) => {
+    try {
+      const orderRef = doc(db, 'stores', STORE_ID, 'orders', orderId);
+      await deleteDoc(orderRef);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `stores/${STORE_ID}/orders/${orderId}`);
+      throw error;
     }
   }
 };
