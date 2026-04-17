@@ -16,7 +16,7 @@ service cloud.firestore {
     }
 
     function isValidProduct(data) {
-      return hasOnlyAllowedFields(['name', 'price', 'original_price', 'description', 'image', 'images', 'notes', 'usage', 'views', 'featured', 'createdAt', 'discount', 'reviewCount', 'sizePrices', 'category', 'badge']) &&
+      return hasOnlyAllowedFields(['name', 'price', 'original_price', 'description', 'image', 'images', 'notes', 'usage', 'views', 'featured', 'createdAt', 'discount', 'reviewCount', 'sizePrices', 'category', 'badge', 'priority']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.price is number && data.price > 0 &&
              (!('original_price' in data) || (data.original_price is number && data.original_price > 0)) &&
@@ -32,7 +32,8 @@ service cloud.firestore {
              (!('reviewCount' in data) || (data.reviewCount is number)) &&
              (!('sizePrices' in data) || (data.sizePrices is map)) &&
              (!('category' in data) || (data.category is string)) &&
-             (!('badge' in data) || (data.badge is string));
+             (!('badge' in data) || (data.badge is string)) &&
+             (!('priority' in data) || (data.priority is number));
     }
 
     function isValidOrder(data) {

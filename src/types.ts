@@ -18,6 +18,7 @@ export interface Product {
     '100ml'?: number;
   };
   reviewCount?: number;
+  priority?: number;
 }
 
 export interface CartItem extends Product {

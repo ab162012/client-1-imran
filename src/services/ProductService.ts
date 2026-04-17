@@ -81,14 +81,39 @@ export const ProductService = {
       const productsRef = ProductService.getCollectionRef();
       let q;
       
-      if (lastDoc) {
-        q = query(productsRef, orderBy('createdAt', 'desc'), startAfter(lastDoc), limit(pageSize));
-      } else {
-        q = query(productsRef, orderBy('createdAt', 'desc'), limit(pageSize));
+      // Try with priority first
+      try {
+        if (lastDoc) {
+          q = query(productsRef, orderBy('priority', 'desc'), orderBy('createdAt', 'desc'), startAfter(lastDoc), limit(pageSize));
+        } else {
+          q = query(productsRef, orderBy('priority', 'desc'), orderBy('createdAt', 'desc'), limit(pageSize));
+        }
+        const snapshot = await getDocs(q);
+        
+        // If we found products, return them
+        if (!snapshot.empty) {
+          const products = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...(doc.data() as any)
+          })) as Product[];
+
+          return {
+            products,
+            lastDoc: snapshot.docs[snapshot.docs.length - 1] || null,
+            hasMore: snapshot.docs.length === pageSize
+          };
+        }
+      } catch (innerError) {
+        console.warn('Priority query failed, falling back to createdAt only:', innerError);
       }
 
-      // Try cache first, then server
-      const snapshot = await getDocs(q);
+      // Fallback: If priority query failed or returned nothing (likely missing field or index)
+      // Note: In Firestore, orderBy filters out documents missing the fields.
+      const fallbackQ = lastDoc 
+        ? query(productsRef, orderBy('createdAt', 'desc'), startAfter(lastDoc), limit(pageSize))
+        : query(productsRef, orderBy('createdAt', 'desc'), limit(pageSize));
+      
+      const snapshot = await getDocs(fallbackQ);
       const products = snapshot.docs.map(doc => ({
         id: doc.id,
         ...(doc.data() as any)
@@ -116,12 +141,28 @@ export const ProductService = {
 
     try {
       const productsRef = ProductService.getCollectionRef();
-      const q = query(productsRef, orderBy('featured', 'desc'), limit(10));
-      const snapshot = await getDocs(q);
-      const products = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...(doc.data() as any)
-      })) as Product[];
+      
+      let products: Product[] = [];
+      try {
+        const q = query(productsRef, orderBy('priority', 'desc'), orderBy('featured', 'desc'), limit(10));
+        const snapshot = await getDocs(q);
+        products = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...(doc.data() as any)
+        })) as Product[];
+      } catch (innerError) {
+        console.warn('Featured priority query failed:', innerError);
+      }
+
+      // If priority query returned nothing, fallback to just featured
+      if (products.length === 0) {
+        const fallbackQ = query(productsRef, orderBy('featured', 'desc'), limit(10));
+        const snapshot = await getDocs(fallbackQ);
+        products = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...(doc.data() as any)
+        })) as Product[];
+      }
 
       productCache[cacheKey] = { data: products, timestamp: Date.now() };
       return products;

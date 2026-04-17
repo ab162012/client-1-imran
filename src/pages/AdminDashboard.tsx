@@ -6,7 +6,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { STORE_ID } from '../constants';
 import { 
   Loader2, Package, Edit2, Save, X, Plus, ShoppingBag, 
-  LayoutDashboard, PlusCircle, Settings, LogOut, Image as ImageIcon, Trash2, Star, Menu, MessageSquare, LayoutTemplate, CheckCircle2, TrendingUp, BarChart3, RefreshCw
+  LayoutDashboard, PlusCircle, Settings, LogOut, Image as ImageIcon, Trash2, Star, Menu, MessageSquare, LayoutTemplate, CheckCircle2, TrendingUp, BarChart3, RefreshCw, Wrench
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { migrateLegacyProducts } from '../seed';
@@ -455,6 +455,65 @@ export const AdminDashboard = () => {
     }
   };
 
+  const handlePrioritizeSignature = async () => {
+    try {
+      setIsMigrating(true);
+      let count = 0;
+      
+      // Fetch ALL products from the store to ensure we catch those not on the current page
+      const productsRef = ProductService.getCollectionRef();
+      const snapshot = await getDocs(productsRef);
+      
+      for (const productDoc of snapshot.docs) {
+        const data = productDoc.data();
+        const name = (data.name || '').toLowerCase();
+        if (name.includes('caliber') || name.includes('deep blue')) {
+          await ProductService.updateProduct(productDoc.id, { priority: 100 });
+          count++;
+        }
+      }
+      
+      if (count > 0) {
+        showSuccess(`Successfully prioritized ${count} signature products!`);
+        fetchData(true);
+      } else {
+        showError('No products matching "Caliber" or "Deep Blue" found.');
+      }
+    } catch (error) {
+      console.error('Prioritization failed:', error);
+      showError('Failed to prioritize products.');
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+
+  const handleRepairProducts = async () => {
+    try {
+      setIsMigrating(true);
+      let count = 0;
+      
+      // Fetch ALL products to repair those missing the priority field
+      const productsRef = ProductService.getCollectionRef();
+      const snapshot = await getDocs(productsRef);
+
+      for (const productDoc of snapshot.docs) {
+        const data = productDoc.data();
+        if (data.priority === undefined) {
+          await ProductService.updateProduct(productDoc.id, { priority: 0 });
+          count++;
+        }
+      }
+      
+      showSuccess(`Repaired ${count} products.`);
+      fetchData(true);
+    } catch (error) {
+      console.error('Repair failed:', error);
+      showError('Failed to repair products.');
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+
   const handleSaveSettings = async () => {
     try {
       setIsSubmitting(true);
@@ -875,6 +934,7 @@ export const AdminDashboard = () => {
                     <tr className="bg-blue-light text-black text-sm uppercase tracking-wider border-b-2 border-blue">
                       <th className="p-4 font-bold">Product</th>
                       <th className="p-4 font-bold">Price</th>
+                      <th className="p-4 font-bold">Priority</th>
                       <th className="p-4 font-bold">Featured</th>
                       <th className="p-4 font-bold text-right">Actions</th>
                     </tr>
@@ -910,6 +970,13 @@ export const AdminDashboard = () => {
                               <div className="font-bold text-black">PKR {product.price.toLocaleString()}</div>
                               {product.original_price && <div className="text-xs text-blue-dark/60 font-medium line-through">PKR {product.original_price.toLocaleString()}</div>}
                             </div>
+                          )}
+                        </td>
+                        <td className="p-4">
+                          {editingId === product.id ? (
+                            <input type="number" className="w-16 px-2 py-1 border-2 border-blue bg-white text-black rounded-lg text-sm font-medium focus:border-black outline-none" value={editForm.priority || 0} onChange={e => setEditForm({ ...editForm, priority: Number(e.target.value) })} />
+                          ) : (
+                            <div className="font-bold text-black">{product.priority || 0}</div>
                           )}
                         </td>
                         <td className="p-4">
@@ -976,6 +1043,10 @@ export const AdminDashboard = () => {
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-blue-dark/70">Old Price (PKR) - Optional</label>
                   <input type="number" className="w-full p-3 border-2 border-blue bg-white text-black rounded-xl focus:border-black outline-none transition-all font-medium" value={newProduct.original_price || ''} onChange={e => setNewProduct({...newProduct, original_price: Number(e.target.value)})} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-blue-dark/70">Priority (Higher = Top)</label>
+                  <input type="number" className="w-full p-3 border-2 border-blue bg-white text-black rounded-xl focus:border-black outline-none transition-all font-medium" value={newProduct.priority || 0} onChange={e => setNewProduct({...newProduct, priority: Number(e.target.value)})} />
                 </div>
               </div>
 
@@ -1524,10 +1595,28 @@ export const AdminDashboard = () => {
                   <button 
                     onClick={handleMigrate} 
                     disabled={isMigrating}
-                    className="w-full py-3 bg-white text-blue-dark font-bold rounded-xl border-2 border-blue hover:bg-blue-light transition-all flex items-center justify-center gap-2"
+                    className="w-full py-3 bg-white text-blue-dark font-bold rounded-xl border-2 border-blue hover:bg-blue-light transition-all flex items-center justify-center gap-2 mb-4"
                   >
                     {isMigrating ? <Loader2 className="animate-spin" size={18} /> : <RefreshCw size={18} />}
                     Migrate Legacy Products
+                  </button>
+
+                  <button 
+                    onClick={handlePrioritizeSignature} 
+                    disabled={isMigrating}
+                    className="w-full py-3 bg-black text-white font-bold rounded-xl hover:bg-blue-dark transition-all flex items-center justify-center gap-2 mb-4"
+                  >
+                    <TrendingUp size={18} />
+                    Prioritize Signature Fragrances (Caliber & Deep Blue)
+                  </button>
+
+                  <button 
+                    onClick={handleRepairProducts} 
+                    disabled={isMigrating}
+                    className="w-full py-3 bg-white text-blue-dark font-bold rounded-xl border-2 border-blue hover:bg-blue-light transition-all flex items-center justify-center gap-2"
+                  >
+                    <Wrench size={18} />
+                    Repair Products (Fix Sorting Field)
                   </button>
                   <p className="mt-2 text-[10px] text-blue-dark/50 font-medium text-center">
                     Use this if you have products in the old database structure that you want to bring into this store.

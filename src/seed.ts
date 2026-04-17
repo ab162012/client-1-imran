@@ -43,7 +43,7 @@ export const migrateLegacyProducts = async (force = false) => {
 
       if (!legacySnapshot.empty) {
         console.log(`Migrating ${legacySnapshot.size} products from root to store ${STORE_ID}...`);
-        const allowedFields = ['name', 'price', 'original_price', 'description', 'image', 'images', 'notes', 'usage', 'views', 'featured', 'createdAt', 'discount', 'reviewCount', 'sizePrices', 'category', 'badge'];
+        const allowedFields = ['name', 'price', 'original_price', 'description', 'image', 'images', 'notes', 'usage', 'views', 'featured', 'createdAt', 'discount', 'reviewCount', 'sizePrices', 'category', 'badge', 'priority'];
         
         for (const legacyDoc of legacySnapshot.docs) {
           try {
@@ -75,6 +75,14 @@ export const migrateLegacyProducts = async (force = false) => {
             if (cleanedData.sizePrices !== undefined && (typeof cleanedData.sizePrices !== 'object' || cleanedData.sizePrices === null)) cleanedData.sizePrices = {};
             if (cleanedData.category !== undefined) cleanedData.category = String(cleanedData.category);
             if (cleanedData.badge !== undefined) cleanedData.badge = String(cleanedData.badge);
+            
+            // Signature products get high priority (100) automatically
+            const lowerName = cleanedData.name.toLowerCase();
+            if (lowerName.includes('caliber') || lowerName.includes('deep blue')) {
+              cleanedData.priority = 100;
+            } else {
+              cleanedData.priority = Number(cleanedData.priority) || 0;
+            }
             
             await setDoc(doc(db, 'stores', STORE_ID, 'products', legacyDoc.id), {
               ...cleanedData,
@@ -113,6 +121,7 @@ export const seedProducts = async () => {
           const { id, ...productData } = product;
           await setDoc(doc(db, 'stores', STORE_ID, 'products', id), {
             ...productData,
+            priority: 0,
             createdAt: Date.now()
           });
         }
