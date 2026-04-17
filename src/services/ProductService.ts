@@ -72,55 +72,35 @@ export const ProductService = {
     }
   },
 
-  /**
-   * Scalable cursor-based pagination scoped to store.
-   * Loads 12 products at a time (optimized for grid layouts).
-   */
   getProductsPaginated: async (pageSize = 12, lastDoc: QueryDocumentSnapshot<DocumentData> | null = null) => {
     try {
       const productsRef = ProductService.getCollectionRef();
-      let q;
-      
-      // Try with priority first
-      try {
-        if (lastDoc) {
-          q = query(productsRef, orderBy('priority', 'desc'), orderBy('createdAt', 'desc'), startAfter(lastDoc), limit(pageSize));
-        } else {
-          q = query(productsRef, orderBy('priority', 'desc'), orderBy('createdAt', 'desc'), limit(pageSize));
-        }
-        const snapshot = await getDocs(q);
-        
-        // If we found products, return them
-        if (!snapshot.empty) {
-          const products = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...(doc.data() as any)
-          })) as Product[];
-
-          return {
-            products,
-            lastDoc: snapshot.docs[snapshot.docs.length - 1] || null,
-            hasMore: snapshot.docs.length === pageSize
-          };
-        }
-      } catch (innerError) {
-        console.warn('Priority query failed, falling back to createdAt only:', innerError);
-      }
-
-      // Fallback: If priority query failed or returned nothing (likely missing field or index)
-      // Note: In Firestore, orderBy filters out documents missing the fields.
-      const fallbackQ = lastDoc 
+      // Standard query by creation date
+      const q = lastDoc 
         ? query(productsRef, orderBy('createdAt', 'desc'), startAfter(lastDoc), limit(pageSize))
         : query(productsRef, orderBy('createdAt', 'desc'), limit(pageSize));
       
-      const snapshot = await getDocs(fallbackQ);
-      const products = snapshot.docs.map(doc => ({
+      const snapshot = await getDocs(q);
+      let products = snapshot.docs.map(doc => ({
         id: doc.id,
         ...(doc.data() as any)
       })) as Product[];
 
+      // Prioritize signature products in-memory at the top
+      // This ensures they appear first even if they are older or missing priority fields
+      const signatureIds = ['caliber', 'deep-blue']; // Use IDs if known, or name check
+      const signatureProducts = products.filter(p => 
+        signatureIds.includes(p.id.toLowerCase()) || 
+        p.name.toLowerCase().includes('caliber') || 
+        p.name.toLowerCase().includes('deep blue')
+      );
+      const otherProducts = products.filter(p => !signatureProducts.includes(p));
+
+      // Re-assemble (if first page, put signature ones on top)
+      const finalProducts = lastDoc ? products : [...signatureProducts, ...otherProducts];
+
       return {
-        products,
+        products: finalProducts,
         lastDoc: snapshot.docs[snapshot.docs.length - 1] || null,
         hasMore: snapshot.docs.length === pageSize
       };
@@ -141,31 +121,23 @@ export const ProductService = {
 
     try {
       const productsRef = ProductService.getCollectionRef();
-      
-      let products: Product[] = [];
-      try {
-        const q = query(productsRef, orderBy('priority', 'desc'), orderBy('featured', 'desc'), limit(10));
-        const snapshot = await getDocs(q);
-        products = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...(doc.data() as any)
-        })) as Product[];
-      } catch (innerError) {
-        console.warn('Featured priority query failed:', innerError);
-      }
+      const q = query(productsRef, orderBy('featured', 'desc'), limit(15));
+      const snapshot = await getDocs(q);
+      let products = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...(doc.data() as any)
+      })) as Product[];
 
-      // If priority query returned nothing, fallback to just featured
-      if (products.length === 0) {
-        const fallbackQ = query(productsRef, orderBy('featured', 'desc'), limit(10));
-        const snapshot = await getDocs(fallbackQ);
-        products = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...(doc.data() as any)
-        })) as Product[];
-      }
+      // Always show signature products first in featured section
+      const signatureProducts = products.filter(p => 
+        p.name.toLowerCase().includes('caliber') || 
+        p.name.toLowerCase().includes('deep blue')
+      );
+      const otherFeatured = products.filter(p => !signatureProducts.includes(p));
+      const finalFeatured = [...signatureProducts, ...otherFeatured];
 
-      productCache[cacheKey] = { data: products, timestamp: Date.now() };
-      return products;
+      productCache[cacheKey] = { data: finalFeatured, timestamp: Date.now() };
+      return finalFeatured;
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, `stores/${STORE_ID}/products`);
       return [];
